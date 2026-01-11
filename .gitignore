@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# runtime data (local)
+.one_person_dnd/
+
+# local secrets
+api_config.ini

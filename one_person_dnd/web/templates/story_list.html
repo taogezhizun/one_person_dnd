@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}剧情摘要 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>剧情摘要（StoryJournal）</h1>
+  <div class="muted">Session：{{ session_id }}</div>
+
+  <div class="card">
+    <div class="card__title">摘要列表</div>
+    {% if entries %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>场景</th>
+            <th>摘要</th>
+            <th>时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in entries %}
+            <tr>
+              <td>{{ e.id }}</td>
+              <td class="muted">{{ e.scene_id }}</td>
+              <td>{{ e.summary }}</td>
+              <td class="muted">{{ e.created_at }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="muted">还没有摘要（后续会在回合累计后自动生成）。</div>
+    {% endif %}
+  </div>
+{% endblock %}
+

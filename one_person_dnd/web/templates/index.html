@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}主页 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>one_person_dnd</h1>
+
+  <div class="card">
+    <div class="card__title">当前战役</div>
+    <div class="muted">Campaign：{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</div>
+    <div class="muted">Session：{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</div>
+    <p>
+      <a class="btn" href="/game">进入当前会话</a>
+      <a class="btn btn--ghost" href="/saves">选择/管理战役</a>
+    </p>
+  </div>
+
+  {% if llm_configured %}
+    <div class="card">
+      <div class="card__title">LLM 已配置</div>
+      <div class="muted">配置文件：{{ config_filename }}</div>
+      <p><a class="btn" href="/game">进入游戏</a></p>
+    </div>
+  {% else %}
+    <div class="card">
+      <div class="card__title">需要先配置 LLM</div>
+      <div class="muted">配置文件：{{ config_filename }}</div>
+      <p><a class="btn" href="/setup">去配置</a></p>
+    </div>
+  {% endif %}
+{% endblock %}
+

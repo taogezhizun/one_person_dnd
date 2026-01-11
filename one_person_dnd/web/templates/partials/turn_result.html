@@ -1,0 +1,46 @@
+<div class="card" style="margin-top: 12px;">
+  <div class="card__title">DM</div>
+  <div class="output md" data-md>{{ dm.narration | e }}</div>
+
+  {% if dm.choices %}
+    <div class="choices">
+      <div class="muted" style="margin-top: 10px;">可选行动</div>
+      <ol>
+        {% for c in dm.choices %}
+          <li>{{ c | e }}</li>
+        {% endfor %}
+      </ol>
+    </div>
+  {% endif %}
+
+  {% if dm.dm_notes %}
+    <details style="margin-top: 10px;">
+      <summary class="muted">DM 备注（系统）</summary>
+      <pre class="pre md" data-md>{{ dm.dm_notes | e }}</pre>
+    </details>
+  {% endif %}
+
+  {% if dm.memory_suggestions %}
+    <details style="margin-top: 10px;">
+      <summary class="muted">剧情摘要建议</summary>
+      <pre class="pre md" data-md>{{ dm.memory_suggestions | e }}</pre>
+    </details>
+  {% endif %}
+</div>
+
+<div id="recall-preview" hx-swap-oob="innerHTML">
+  {% if recalled_world and recalled_world|length > 0 %}
+    <ol style="margin: 0; padding-left: 18px;">
+      {% for e in recalled_world %}
+        <li>
+          <span class="muted">[{{ e.type }}]</span>
+          {{ e.title }}
+          {% if e.tags %}<span class="muted">（{{ e.tags }}）</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <span class="muted">（本回合未命中任何 WorldBible 条目；可以尝试填写更具体的标签）</span>
+  {% endif %}
+</div>
+

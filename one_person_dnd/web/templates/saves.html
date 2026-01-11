@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}存档 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>存档</h1>
+  <p><a class="btn" href="/game">进入当前会话</a></p>
+
+  <div class="grid">
+    <section class="card">
+      <div class="card__title">战役（Campaign）</div>
+
+      <form class="form" method="post" action="/saves/campaign/new">
+        <label class="label">
+          新建战役名称
+          <input class="input" name="name" required placeholder="例如：乌鸦港疑云" />
+        </label>
+        <div class="row">
+          <button class="btn" type="submit">创建并设为当前</button>
+        </div>
+      </form>
+
+      <div class="card" style="margin-top: 12px;">
+        <div class="card__title">战役列表</div>
+        {% if campaigns %}
+          <table class="table">
+            <thead>
+              <tr><th>ID</th><th>名称</th><th>创建时间</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for c in campaigns %}
+                <tr>
+                  <td>{{ c.id }}</td>
+                  <td>
+                    {% if c.id == current_campaign_id %}
+                      <strong>{{ c.name }}</strong> <span class="muted">（当前）</span>
+                    {% else %}
+                      {{ c.name }}
+                    {% endif %}
+                  </td>
+                  <td class="muted">{{ c.created_at }}</td>
+                  <td>
+                    {% if c.id != current_campaign_id %}
+                      <form method="post" action="/saves/campaign/select">
+                        <input type="hidden" name="campaign_id" value="{{ c.id }}" />
+                        <button class="btn btn--ghost" type="submit">设为当前</button>
+                      </form>
+                    {% endif %}
+                    <form method="post" action="/saves/campaign/enter" style="margin-top: 6px;">
+                      <input type="hidden" name="campaign_id" value="{{ c.id }}" />
+                      <button class="btn" type="submit">进入</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="muted">暂无战役。</div>
+        {% endif %}
+      </div>
+    </section>
+
+    <aside class="card">
+      <div class="card__title">会话（Session）</div>
+      <div class="muted">当前战役：{{ current_campaign_id }}</div>
+
+      <form class="form" method="post" action="/saves/session/new">
+        <label class="label">
+          新建会话标题
+          <input class="input" name="title" required placeholder="例如：第一章·酒馆里的陌生人" />
+        </label>
+        <label class="label">
+          当前场景（可选）
+          <input class="input" name="current_scene" value="起始" />
+        </label>
+        <div class="row">
+          <button class="btn" type="submit">创建并设为当前</button>
+        </div>
+      </form>
+
+      <div class="card" style="margin-top: 12px;">
+        <div class="card__title">会话列表</div>
+        {% if sessions %}
+          <table class="table">
+            <thead>
+              <tr><th>ID</th><th>标题</th><th>场景</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for s in sessions %}
+                <tr>
+                  <td>{{ s.id }}</td>
+                  <td>
+                    {% if s.id == current_session_id %}
+                      <strong>{{ s.title }}</strong> <span class="muted">（当前）</span>
+                    {% else %}
+                      {{ s.title }}
+                    {% endif %}
+                  </td>
+                  <td class="muted">{{ s.current_scene }}</td>
+                  <td>
+                    {% if s.id != current_session_id %}
+                      <form method="post" action="/saves/session/select">
+                        <input type="hidden" name="session_id" value="{{ s.id }}" />
+                        <button class="btn btn--ghost" type="submit">设为当前</button>
+                      </form>
+                    {% endif %}
+                    <form method="post" action="/saves/session/enter" style="margin-top: 6px;">
+                      <input type="hidden" name="session_id" value="{{ s.id }}" />
+                      <button class="btn" type="submit">进入</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div class="muted">暂无会话。</div>
+        {% endif %}
+      </div>
+    </aside>
+  </div>
+{% endblock %}
+

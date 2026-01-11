@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}新建设定 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>新建设定条目</h1>
+  <div class="muted">建议用“标签”做检索：地点名、NPC 名、组织名、场景关键字等（逗号分隔）。</div>
+
+  <form class="form" method="post" action="/memory/world/new">
+    <label class="label">
+      类型
+      <select class="input" name="type" id="type">
+        <option value="Location">Location（地点）</option>
+        <option value="NPC">NPC</option>
+        <option value="Organization">Organization（组织）</option>
+        <option value="Rule">Rule（规则/禁忌）</option>
+        <option value="Other">Other</option>
+      </select>
+    </label>
+
+    <label class="label">
+      标题
+      <input class="input" name="title" required placeholder="例如：乌鸦酒馆 / 银刃盗贼团 / 维拉牧师" />
+    </label>
+
+    <label class="label">
+      标签（逗号分隔）
+      <input class="input" name="tags" placeholder="乌鸦酒馆,港口区,线索A" />
+    </label>
+
+    <div class="card" style="margin-top: 12px;">
+      <div class="card__title">结构化模板（按类型填写，可留空）</div>
+
+      <div data-section="Location">
+        <label class="label">地理 <input class="input" name="location_geo" /></label>
+        <label class="label">势力 <input class="input" name="location_factions" /></label>
+        <label class="label">资源 <input class="input" name="location_resources" /></label>
+        <label class="label">危险 <input class="input" name="location_dangers" /></label>
+        <label class="label">关键地点 <input class="input" name="location_points" /></label>
+      </div>
+
+      <div data-section="NPC" style="display:none;">
+        <label class="label">外观 <input class="input" name="npc_appearance" /></label>
+        <label class="label">动机 <input class="input" name="npc_motivation" /></label>
+        <label class="label">秘密 <input class="input" name="npc_secret" /></label>
+        <label class="label">关系 <input class="input" name="npc_relations" /></label>
+        <label class="label">战斗倾向 <input class="input" name="npc_combat" /></label>
+      </div>
+
+      <div data-section="Organization" style="display:none;">
+        <label class="label">目标 <input class="input" name="org_goal" /></label>
+        <label class="label">资源 <input class="input" name="org_resources" /></label>
+        <label class="label">敌对 <input class="input" name="org_enemies" /></label>
+        <label class="label">影响范围 <input class="input" name="org_influence" /></label>
+      </div>
+
+      <div data-section="Rule" style="display:none;">
+        <label class="label">硬约束 <input class="input" name="rule_hard_constraints" /></label>
+        <label class="label">魔法规则 <input class="input" name="rule_magic" /></label>
+        <label class="label">禁忌 <input class="input" name="rule_taboos" /></label>
+      </div>
+    </div>
+
+    <label class="label">
+      自由补充（可选）
+      <textarea class="input textarea" name="content_free" placeholder="任何补充说明..."></textarea>
+    </label>
+
+    <div class="row">
+      <button class="btn" type="submit">保存</button>
+      <a class="btn btn--ghost" href="/memory/world">返回</a>
+    </div>
+  </form>
+
+  <script>
+    (function () {
+      const typeEl = document.getElementById("type");
+      function refresh() {
+        const t = typeEl.value;
+        document.querySelectorAll("[data-section]").forEach((el) => {
+          el.style.display = el.getAttribute("data-section") === t ? "block" : "none";
+        });
+        // Other: hide all templates
+        if (t === "Other") {
+          document.querySelectorAll("[data-section]").forEach((el) => (el.style.display = "none"));
+        }
+      }
+      typeEl.addEventListener("change", refresh);
+      refresh();
+    })();
+  </script>
+{% endblock %}
+

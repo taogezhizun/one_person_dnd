@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}游戏 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>游戏</h1>
+
+  <div class="grid">
+    <section class="card">
+      <div class="card__title">对话</div>
+
+      <form
+        id="turn-form"
+        class="form"
+        hx-post="/game/turn"
+        hx-target="#turn-result"
+        hx-swap="innerHTML"
+        hx-indicator="#turn-loading"
+      >
+        <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
+        <input type="hidden" name="session_id" value="{{ session_id }}" />
+        <label class="label">
+          玩家输入
+          <textarea class="input textarea" name="player_text" required placeholder="描述你的行动..."></textarea>
+        </label>
+        <label class="label">
+          标签（用于检索 WorldBible，逗号分隔，可选）
+          <input class="input" name="tags" placeholder="酒馆,盗贼公会,某NPC" />
+        </label>
+        <label class="label">
+          当前状态（可选，给 DM 的额外上下文）
+          <textarea class="input textarea" name="state_block" placeholder="队伍状态、地点、时间、已知线索..."></textarea>
+        </label>
+        <div class="row">
+          <button class="btn" type="submit">发送</button>
+          <span id="turn-loading" class="htmx-indicator spinner">DM 思考中…</span>
+        </div>
+      </form>
+
+      <div id="turn-result"></div>
+    </section>
+
+    <aside class="card">
+      <div class="card__title">信息栏</div>
+      <div class="muted"><a href="/saves">管理存档</a></div>
+
+      <div class="kv" style="margin-top: 8px;">
+        <div class="kv__k">Campaign</div><div class="kv__v">{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</div>
+        <div class="kv__k">Session</div><div class="kv__v">{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</div>
+      </div>
+
+      <form
+        id="sidebar-form"
+        class="form"
+        hx-post="/game/session/update"
+        hx-target="#sidebar-save-result"
+        hx-swap="innerHTML"
+        hx-indicator="#sidebar-saving"
+      >
+        <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
+        <input type="hidden" name="session_id" value="{{ session_id }}" />
+
+        <label class="label">
+          当前场景
+          <input class="input" name="current_scene" value="{{ current_scene }}" placeholder="例如：乌鸦酒馆二楼客房" />
+        </label>
+
+        <label class="label">
+          主角/队伍状态（会自动参与 DM 提示词）
+          <textarea class="input textarea" name="session_state" placeholder="你是谁/属性/HP/物品/目标...">{{ session_state }}</textarea>
+        </label>
+
+        <label class="label">
+          置顶世界设定（硬规则/重要NPC/关键地点，会自动参与 DM 提示词）
+          <textarea class="input textarea" name="pinned_world_notes" placeholder="世界硬规则/重要关系/禁忌...">{{ pinned_world_notes }}</textarea>
+        </label>
+
+        <div class="row">
+          <button class="btn" type="submit">保存</button>
+          <span id="sidebar-saving" class="htmx-indicator spinner">保存中…</span>
+        </div>
+        <div id="sidebar-save-result"></div>
+      </form>
+
+      <div class="card" style="margin-top: 12px;">
+        <div class="card__title">本回合召回设定</div>
+        <div id="recall-preview" class="muted">（发送一次行动后显示命中的 WorldBible 条目）</div>
+      </div>
+    </aside>
+  </div>
+{% endblock %}
+

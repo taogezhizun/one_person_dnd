@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}配置 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>配置 LLM</h1>
+  <div class="muted">配置文件：{{ config_path }}</div>
+
+  <form id="setup-form" class="form" method="post" action="/setup">
+    <label class="label">
+      Base URL
+      <input class="input" name="base_url" required value="{{ existing.base_url if existing else '' }}" placeholder="https://api.example.com/v1" />
+    </label>
+
+    <label class="label">
+      API Key
+      <input class="input" name="api_key" required value="{{ existing.api_key if existing else '' }}" placeholder="sk-..." />
+    </label>
+
+    <label class="label">
+      Model
+      <input class="input" name="model" required value="{{ existing.model if existing else '' }}" placeholder="gpt-4o-mini / deepseek-chat / ..." />
+    </label>
+
+    <label class="label">
+      Timeout Seconds
+      <input class="input" name="timeout_seconds" type="number" step="0.1" min="1" value="{{ existing.timeout_seconds if existing else 60.0 }}" />
+    </label>
+
+    <div class="row">
+      <button class="btn" type="submit">保存</button>
+      <button
+        class="btn btn--ghost"
+        type="button"
+        hx-post="/setup/test"
+        hx-target="#test-result"
+        hx-include="#setup-form"
+      >
+        测试连接
+      </button>
+      <a class="btn btn--ghost" href="/">返回</a>
+    </div>
+
+    <div id="test-result" class="test-result"></div>
+  </form>
+{% endblock %}
+

@@ -1,0 +1,16 @@
+<div class="card" style="margin-top: 12px;">
+  <div class="notice notice--err">
+    <div style="font-weight: 700;">DM 请求失败</div>
+    <div class="muted">{{ message }}</div>
+    <div class="muted" style="margin-top: 8px;">
+      建议：\n
+      1) 在 <code>api_config.ini</code> 中把 <code>[llm].timeout_seconds</code> 调大（例如 180 或 300）\n
+      2) 检查 <code>base_url</code> 是否为 OpenAI-compatible 的根路径（系统会自动拼接 <code>/chat/completions</code>）
+    </div>
+  </div>
+</div>
+
+<div id="recall-preview" hx-swap-oob="innerHTML">
+  <span class="muted">（本回合未更新召回信息：DM 调用失败）</span>
+</div>
+

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}世界设定 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>世界设定（WorldBible）</h1>
+  <div class="row" style="justify-content: space-between; align-items: center;">
+    <div class="muted">Campaign：{{ campaign_id }}</div>
+    <a class="btn" href="/memory/world/new">新建设定条目</a>
+  </div>
+
+  <div class="card">
+    <div class="card__title">条目列表</div>
+    {% if entries %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>类型</th>
+            <th>标题</th>
+            <th>标签</th>
+            <th>更新时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in entries %}
+            <tr>
+              <td>{{ e.id }}</td>
+              <td>{{ e.type }}</td>
+              <td>{{ e.title }}</td>
+              <td class="muted">{{ e.tags }}</td>
+              <td class="muted">{{ e.updated_at }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="muted">还没有设定条目。</div>
+    {% endif %}
+  </div>
+{% endblock %}
+
