@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     from one_person_dnd.web.routes import router
 
     app.include_router(router)
-    app.mount("/static", StaticFiles(directory="one_person_dnd/web/static"), name="static")
+    web_dir = Path(__file__).resolve().parent
+    app.mount("/static", StaticFiles(directory=str(web_dir / "static")), name="static")
     return app
 

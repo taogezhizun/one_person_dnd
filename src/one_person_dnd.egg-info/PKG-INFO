@@ -1,3 +1,14 @@
+Metadata-Version: 2.4
+Name: one-person-dnd
+Version: 0.1.0
+Summary: One person DND web app (LLM as DM)
+Author: Jason Liang
+License: MIT
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Dynamic: license-file
+
 # one_person_dnd
 
 一个“一键 Python 启动 Web”的单人 DND 系统（LLM 充当 DM），支持多战役存档、世界设定（可浏览/可编辑）与剧情摘要的持久化。

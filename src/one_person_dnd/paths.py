@@ -19,8 +19,9 @@ def get_app_paths() -> AppPaths:
     - Config: <project_root>/api_config.ini
     - Runtime data (DB): <project_root>/.one_person_dnd/one_person_dnd.sqlite3
     """
-    # one_person_dnd/paths.py -> project_root is its parent directory
-    project_root = Path(__file__).resolve().parent.parent
+    # src/one_person_dnd/paths.py -> project_root is three levels up
+    #   paths.py -> one_person_dnd -> src -> project_root
+    project_root = Path(__file__).resolve().parents[2]
     app_dir = project_root / ".one_person_dnd"
 
     return AppPaths(

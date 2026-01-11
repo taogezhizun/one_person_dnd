@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -17,7 +19,8 @@ from one_person_dnd.llm import ChatMessage, OpenAICompatClient, LLMClientError
 from one_person_dnd.paths import ensure_app_dirs
 
 router = APIRouter()
-templates = Jinja2Templates(directory="one_person_dnd/web/templates")
+web_dir = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(web_dir / "templates"))
 
 
 def _ensure_default_campaign_session() -> tuple[int, int]:
