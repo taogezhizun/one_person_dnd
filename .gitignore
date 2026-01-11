@@ -8,3 +8,6 @@ __pycache__/
 
 # local secrets
 api_config.ini
+
+# cursor IDE config
+.cursor/
