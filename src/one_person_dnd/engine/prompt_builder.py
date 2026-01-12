@@ -15,7 +15,6 @@ def build_dm_messages(
     *,
     memory: RetrievedMemory,
     state_block: str,
-    player_text: str,
 ) -> list[ChatMessage]:
     system = (
         "你是 Dungeon Master（DM）。\n"
@@ -36,19 +35,18 @@ def build_dm_messages(
     world = "\n\n".join(memory.world_bible_blocks) or "（无相关世界设定条目）"
     story = "\n\n".join(memory.story_blocks) or "（无近期剧情摘要）"
 
-    user = (
+    context = (
         "【WorldBible】\n"
         f"{world}\n\n"
         "【StoryJournal】\n"
         f"{story}\n\n"
         "【当前状态】\n"
-        f"{state_block}\n\n"
-        "【玩家输入】\n"
-        f"{player_text}\n"
+        f"{state_block}\n"
     )
 
     return [
         ChatMessage(role="system", content=system),
-        ChatMessage(role="user", content=user),
+        # Use a second system message to provide stable context blocks.
+        ChatMessage(role="system", content=context),
     ]
 

@@ -103,3 +103,29 @@ a:hover { text-decoration: underline; }
   to { transform: rotate(360deg); }
 }
 
+.chat-history {
+  margin-top: 12px;
+  height: 360px;
+  overflow: auto;
+  padding-right: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(14, 21, 34, 0.35);
+}
+.chat__turn { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.chat__msg {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  max-width: 92%;
+}
+.chat__msg--user {
+  align-self: flex-end;
+  background: rgba(24, 34, 53, 0.55);
+}
+.chat__msg--assistant {
+  align-self: flex-start;
+  background: rgba(18, 26, 38, 0.75);
+}
+.chat__meta { font-weight: 700; margin-bottom: 6px; }
+.chat__content { white-space: pre-wrap; }

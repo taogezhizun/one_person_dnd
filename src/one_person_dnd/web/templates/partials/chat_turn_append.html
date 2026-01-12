@@ -1,0 +1,18 @@
+{% include "partials/chat_turn.html" %}
+
+<div id="recall-preview" hx-swap-oob="innerHTML">
+  {% if recalled_world and recalled_world|length > 0 %}
+    <ol style="margin: 0; padding-left: 18px;">
+      {% for e in recalled_world %}
+        <li>
+          <span class="muted">[{{ e.type }}]</span>
+          {{ e.title }}
+          {% if e.tags %}<span class="muted">（{{ e.tags }}）</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <span class="muted">（本回合未命中任何 WorldBible 条目；可以尝试填写更具体的标签）</span>
+  {% endif %}
+</div>
+

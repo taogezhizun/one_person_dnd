@@ -4,17 +4,17 @@
 
 {% block content %}
   <h1>配置 LLM</h1>
-  <div class="muted">配置文件：{{ config_path }}</div>
+  <div class="muted">配置文件：api_config.ini</div>
 
   <form id="setup-form" class="form" method="post" action="/setup">
     <label class="label">
       Base URL
-      <input class="input" name="base_url" required value="{{ existing.base_url if existing else '' }}" placeholder="https://api.example.com/v1" />
+      <input class="input" name="base_url" required value="{{ existing.base_url if existing else '' }}" placeholder="http://host:port/v1（不要填 /chat/completions）" />
     </label>
 
     <label class="label">
       API Key
-      <input class="input" name="api_key" required value="{{ existing.api_key if existing else '' }}" placeholder="sk-..." />
+      <input class="input" name="api_key" value="{{ existing.api_key if existing else '' }}" placeholder="sk-...（本地 OpenAI-compatible 可留空）" />
     </label>
 
     <label class="label">

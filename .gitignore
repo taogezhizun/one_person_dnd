@@ -11,3 +11,9 @@ api_config.ini
 
 # cursor IDE config
 .cursor/
+
+# python build artifacts
+*.egg-info/
+build/
+dist/
+.pytest_cache/

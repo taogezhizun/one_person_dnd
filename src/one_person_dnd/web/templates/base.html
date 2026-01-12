@@ -39,11 +39,29 @@
           });
         }
 
+        function scrollChatToBottom() {
+          const el = document.getElementById("chat-history");
+          if (!el) return;
+          el.scrollTop = el.scrollHeight;
+        }
+
         document.addEventListener("DOMContentLoaded", function () {
           renderMarkdown(document);
+          scrollChatToBottom();
         });
         document.body.addEventListener("htmx:afterSwap", function (evt) {
           renderMarkdown(evt.target);
+          if (evt.target && evt.target.id === "chat-history") {
+            scrollChatToBottom();
+          }
+        });
+
+        document.body.addEventListener("htmx:afterRequest", function (evt) {
+          const elt = evt.detail && evt.detail.elt;
+          if (!elt || elt.id !== "turn-form") return;
+          // Clear only the main input; keep tags/state for convenience.
+          const ta = elt.querySelector("textarea[name=player_text]");
+          if (ta) ta.value = "";
         });
       })();
     </script>

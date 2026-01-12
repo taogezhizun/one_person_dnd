@@ -23,13 +23,24 @@ class OpenAICompatClient:
         self._cfg = cfg
 
     def _endpoint(self) -> str:
-        return self._cfg.base_url.rstrip("/") + "/chat/completions"
+        """
+        Accept either:
+        - base_url = http://host:port/v1            (preferred)
+        - base_url = http://host:port/v1/chat/completions (tolerated)
+        """
+        base = self._cfg.base_url.rstrip("/")
+        if base.endswith("/chat/completions"):
+            return base
+        return base + "/chat/completions"
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self._cfg.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        api_key = (self._cfg.api_key or "").strip()
+        # For local/self-hosted OpenAI-compatible servers, api_key can be empty.
+        # Avoid sending an invalid header value like "Bearer ".
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
 
     def chat(self, messages: list[ChatMessage]) -> str:
         """
@@ -122,4 +133,22 @@ class OpenAICompatClient:
             raise LLMClientError(f"LLM HTTP error: {e} body={body}") from e
         except Exception as e:
             raise LLMClientError(f"LLM request failed: {e}") from e
+
+
+def create_llm_client(cfg: LLMConfig) -> OpenAICompatClient:
+    """
+    Factory for selecting LLM provider implementation.
+
+    Current: only OpenAI-compatible is implemented.
+    Future: add OllamaClient etc. and branch by cfg.provider.
+    """
+    provider = (cfg.provider or "openai_compat").strip().lower()
+    if provider in ("openai_compat", "openai-compatible", "openai"):
+        return OpenAICompatClient(cfg)
+
+    raise LLMClientError(
+        f"Unsupported LLM provider: {cfg.provider}. "
+        "Current supported: openai_compat. "
+        "Future providers (e.g. ollama) can be added via adapters."
+    )
 

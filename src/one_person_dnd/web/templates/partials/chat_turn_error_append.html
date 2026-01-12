@@ -1,0 +1,19 @@
+<div class="chat__turn chat__turn--error">
+  <div class="chat__msg chat__msg--user">
+    <div class="chat__meta">你</div>
+    <div class="chat__content pre">{{ player_text | e }}</div>
+  </div>
+
+  <div class="chat__msg chat__msg--assistant">
+    <div class="chat__meta">DM</div>
+    <div class="notice notice--err">
+      <div style="font-weight: 700;">请求失败</div>
+      <div class="muted">{{ message }}</div>
+    </div>
+  </div>
+</div>
+
+<div id="recall-preview" hx-swap-oob="innerHTML">
+  <span class="muted">（本回合未更新召回信息：DM 调用失败）</span>
+</div>
+

@@ -1,0 +1,37 @@
+<div class="chat__turn" id="turn-{{ turn.turn_index }}">
+  <div class="chat__msg chat__msg--user">
+    <div class="chat__meta">你</div>
+    <div class="chat__content pre">{{ turn.player_text | e }}</div>
+  </div>
+
+  <div class="chat__msg chat__msg--assistant">
+    <div class="chat__meta">DM</div>
+    <div class="chat__content md" data-md>{{ turn.dm.narration | e }}</div>
+
+    {% if turn.dm.choices %}
+      <div class="choices" style="margin-top: 10px;">
+        <div class="muted">可选行动</div>
+        <ol>
+          {% for c in turn.dm.choices %}
+            <li>{{ c | e }}</li>
+          {% endfor %}
+        </ol>
+      </div>
+    {% endif %}
+
+    {% if turn.dm.dm_notes %}
+      <details style="margin-top: 10px;">
+        <summary class="muted">DM 备注（系统）</summary>
+        <pre class="pre md" data-md>{{ turn.dm.dm_notes | e }}</pre>
+      </details>
+    {% endif %}
+
+    {% if turn.dm.memory_suggestions %}
+      <details style="margin-top: 10px;">
+        <summary class="muted">剧情摘要建议</summary>
+        <pre class="pre md" data-md>{{ turn.dm.memory_suggestions | e }}</pre>
+      </details>
+    {% endif %}
+  </div>
+</div>
+

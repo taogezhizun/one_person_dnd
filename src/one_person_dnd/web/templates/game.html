@@ -9,12 +9,22 @@
     <section class="card">
       <div class="card__title">对话</div>
 
+      <div id="chat-history" class="chat-history">
+        {% if turns and turns|length > 0 %}
+          {% for turn in turns %}
+            {% include "partials/chat_turn.html" %}
+          {% endfor %}
+        {% else %}
+          <div class="muted">（暂无历史，对话从这里开始）</div>
+        {% endif %}
+      </div>
+
       <form
         id="turn-form"
         class="form"
         hx-post="/game/turn"
-        hx-target="#turn-result"
-        hx-swap="innerHTML"
+        hx-target="#chat-history"
+        hx-swap="beforeend"
         hx-indicator="#turn-loading"
       >
         <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
@@ -36,8 +46,6 @@
           <span id="turn-loading" class="htmx-indicator spinner">DM 思考中…</span>
         </div>
       </form>
-
-      <div id="turn-result"></div>
     </section>
 
     <aside class="card">
