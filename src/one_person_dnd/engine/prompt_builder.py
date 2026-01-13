@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from one_person_dnd.llm import ChatMessage
 
@@ -9,6 +9,7 @@ from one_person_dnd.llm import ChatMessage
 class RetrievedMemory:
     world_bible_blocks: list[str]
     story_blocks: list[str]
+    plot_threads_blocks: list[str] = field(default_factory=list)  # open threads, formatted for prompt
 
 
 def build_dm_messages(
@@ -28,16 +29,26 @@ def build_dm_messages(
         "(这里写给系统看的 DM 备注，可简短)\n"
         "===MEMORY===\n"
         "(这里写建议写入剧情摘要的要点，可简短)\n"
-        "禁止输出以上分隔符之外的额外前缀/标题。\n"
+        "你可以在最后追加可选段（如果需要）：\n"
+        "===STATE_DELTA===\n"
+        "(JSON，对角色卡/物品/HP/金币等的变更建议；留空也可以)\n"
+        "===THREAD_UPDATES===\n"
+        "(JSON，对主线线程的更新建议；留空也可以)\n"
+        "禁止输出任何不在以上分隔符内的额外前缀/标题。\n"
         "请用中文。"
     )
 
     world = "\n\n".join(memory.world_bible_blocks) or "（无相关世界设定条目）"
     story = "\n\n".join(memory.story_blocks) or "（无近期剧情摘要）"
+    threads = ""
+    if memory.plot_threads_blocks:
+        threads = "\n\n".join(memory.plot_threads_blocks).strip()
 
     context = (
         "【WorldBible】\n"
         f"{world}\n\n"
+        "【PlotThreads】\n"
+        f"{threads or '（无进行中的主线线程）'}\n\n"
         "【StoryJournal】\n"
         f"{story}\n\n"
         "【当前状态】\n"

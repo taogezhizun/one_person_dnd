@@ -1,0 +1,62 @@
+<div class="card" style="margin-top: 12px;">
+  <div class="card__title">角色卡（JSON）</div>
+  {% if notice_message %}
+    <div class="notice" style="margin-top: 10px;">{{ notice_message }}</div>
+  {% endif %}
+  <form
+    class="form"
+    hx-post="/character/save"
+    hx-target="#character-save-result"
+    hx-swap="innerHTML"
+    hx-indicator="#character-saving"
+  >
+    <label class="label">
+      角色卡 JSON（权威状态建议落库，不依赖模型“记得”）
+      <textarea class="input textarea" name="character_sheet" placeholder='{"name":"主角","hp":10,"gold":5,"inventory":["短剑"]}'>{{ character_sheet }}</textarea>
+    </label>
+    <div class="row">
+      <button class="btn" type="submit">保存角色卡</button>
+      <span id="character-saving" class="htmx-indicator spinner">保存中…</span>
+    </div>
+    <div id="character-save-result"></div>
+  </form>
+</div>
+
+<div class="card" style="margin-top: 12px;">
+  <div class="card__title">待确认变更</div>
+  {% if pending_changes and pending_changes|length > 0 %}
+    {% for c in pending_changes %}
+      <div class="card" style="margin-top: 10px;">
+        <div class="kv">
+          <div class="kv__k">ID</div><div class="kv__v">{{ c.id }}</div>
+          <div class="kv__k">类型</div><div class="kv__v">{{ c.kind }}</div>
+          <div class="kv__k">回合</div><div class="kv__v">{{ c.turn_index }}</div>
+        </div>
+        <pre class="muted" style="white-space: pre-wrap; margin-top: 8px;">{{ c.delta_json_text }}</pre>
+        <div class="row" style="margin-top: 8px;">
+          <form
+            hx-post="/character/change/apply"
+            hx-target="#character-panel"
+            hx-swap="innerHTML"
+            hx-push-url="false"
+          >
+            <input type="hidden" name="request_id" value="{{ c.id }}" />
+            <button class="btn" type="submit">应用</button>
+          </form>
+          <form
+            hx-post="/character/change/reject"
+            hx-target="#character-panel"
+            hx-swap="innerHTML"
+            hx-push-url="false"
+          >
+            <input type="hidden" name="request_id" value="{{ c.id }}" />
+            <button class="btn btn--ghost" type="submit">拒绝</button>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="muted">（暂无待确认变更）</div>
+  {% endif %}
+</div>
+

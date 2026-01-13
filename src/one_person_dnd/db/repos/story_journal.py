@@ -38,13 +38,14 @@ def insert_story_journal_entry(
     summary: str,
     open_threads: str = "",
     key_facts: str = "",
+    turn_index: int | None = None,
 ) -> int:
     conn.execute(
         """
-        INSERT INTO story_journal_entries(session_id, scene_id, summary, open_threads, key_facts)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO story_journal_entries(session_id, scene_id, summary, open_threads, key_facts, turn_index)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (session_id, scene_id, summary, open_threads, key_facts),
+        (session_id, scene_id, summary, open_threads, key_facts, turn_index),
     )
     row = conn.execute("SELECT last_insert_rowid()").fetchone()
     return int(row[0])

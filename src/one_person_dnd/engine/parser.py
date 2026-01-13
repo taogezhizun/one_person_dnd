@@ -9,6 +9,8 @@ class DMStructuredResponse:
     choices: list[str]
     dm_notes: str
     memory_suggestions: str
+    state_delta_json: str = ""
+    thread_updates_json: str = ""
 
 
 def parse_dm_text(text: str) -> DMStructuredResponse:
@@ -29,6 +31,8 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
             "===CHOICES===": "choices",
             "===DM_NOTES===": "dm_notes",
             "===MEMORY===": "memory_suggestions",
+            "===STATE_DELTA===": "state_delta_json",
+            "===THREAD_UPDATES===": "thread_updates_json",
         }
         current: str | None = None
         buf: dict[str, list[str]] = {v: [] for v in keys.values()}
@@ -52,6 +56,8 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
         choices_block = "\n".join(buf["choices"]).strip()
         dm_notes = "\n".join(buf["dm_notes"]).strip()
         memory_suggestions = "\n".join(buf["memory_suggestions"]).strip()
+        state_delta_json = "\n".join(buf["state_delta_json"]).strip()
+        thread_updates_json = "\n".join(buf["thread_updates_json"]).strip()
 
         choices: list[str] = []
         for line in choices_block.splitlines():
@@ -75,6 +81,8 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
             choices=choices,
             dm_notes=dm_notes or "",
             memory_suggestions=memory_suggestions or "",
+            state_delta_json=state_delta_json or "",
+            thread_updates_json=thread_updates_json or "",
         )
 
     parsed = _parse_by_delimiters(t)
@@ -134,5 +142,7 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
         choices=choices,
         dm_notes=dm_notes,
         memory_suggestions=memory_suggestions,
+        state_delta_json="",
+        thread_updates_json="",
     )
 

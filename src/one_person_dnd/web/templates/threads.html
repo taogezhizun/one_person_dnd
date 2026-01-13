@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}线程 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>主线线程（Quest/Thread Tracker）</h1>
+  <div class="muted">当前 Session：{{ session_id }}</div>
+
+  <section class="card" style="margin-top: 12px;">
+    <div class="card__title">新建线程</div>
+    <form class="form" method="post" action="/threads/new">
+      <label class="label">
+        标题
+        <input class="input" name="title" required placeholder="例如：找到失踪的学徒" />
+      </label>
+      <div class="row">
+        <label class="label" style="flex: 1;">
+          优先级（越大越靠前）
+          <input class="input" type="number" name="priority" value="0" />
+        </label>
+        <label class="label" style="flex: 2;">
+          标签（逗号分隔，可选）
+          <input class="input" name="tags" placeholder="主线,支线,NPC" />
+        </label>
+      </div>
+      <label class="label">
+        概要（可选）
+        <textarea class="input textarea" name="summary" placeholder="一句话说明当前进展..."></textarea>
+      </label>
+      <label class="label">
+        下一步（next_step，可选）
+        <textarea class="input textarea" name="next_step" placeholder="例如：去乌鸦酒馆问老板娘"></textarea>
+      </label>
+      <button class="btn" type="submit">创建</button>
+    </form>
+  </section>
+
+  <section class="card" style="margin-top: 12px;">
+    <div class="card__title">进行中（open）</div>
+    {% if open_threads and open_threads|length > 0 %}
+      {% for t in open_threads %}
+        <div class="card" style="margin-top: 10px;">
+          <div class="kv">
+            <div class="kv__k">ID</div><div class="kv__v">{{ t.id }}</div>
+            <div class="kv__k">状态</div><div class="kv__v">{{ t.status }}</div>
+            <div class="kv__k">优先级</div><div class="kv__v">{{ t.priority }}</div>
+          </div>
+          <form class="form" method="post" action="/threads/update">
+            <input type="hidden" name="thread_id" value="{{ t.id }}" />
+            <label class="label">
+              标题
+              <input class="input" name="title" value="{{ t.title }}" required />
+            </label>
+            <div class="row">
+              <label class="label" style="flex: 1;">
+                优先级
+                <input class="input" type="number" name="priority" value="{{ t.priority }}" />
+              </label>
+              <label class="label" style="flex: 2;">
+                标签
+                <input class="input" name="tags" value="{{ t.tags or '' }}" />
+              </label>
+            </div>
+            <label class="label">
+              概要
+              <textarea class="input textarea" name="summary">{{ t.summary or '' }}</textarea>
+            </label>
+            <label class="label">
+              下一步（next_step）
+              <textarea class="input textarea" name="next_step">{{ t.next_step or '' }}</textarea>
+            </label>
+            <div class="row">
+              <button class="btn" type="submit">保存</button>
+              <form method="post" action="/threads/close">
+                <input type="hidden" name="thread_id" value="{{ t.id }}" />
+                <button class="btn btn--ghost" type="submit">关闭</button>
+              </form>
+            </div>
+          </form>
+          <form method="post" action="/threads/close" style="margin-top: 6px;">
+            <input type="hidden" name="thread_id" value="{{ t.id }}" />
+            <button class="btn btn--ghost" type="submit">关闭线程</button>
+          </form>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="muted">（暂无进行中的线程）</div>
+    {% endif %}
+  </section>
+
+  <section class="card" style="margin-top: 12px;">
+    <div class="card__title">已关闭（closed）</div>
+    {% if closed_threads and closed_threads|length > 0 %}
+      {% for t in closed_threads %}
+        <div class="card" style="margin-top: 10px;">
+          <div class="kv">
+            <div class="kv__k">ID</div><div class="kv__v">{{ t.id }}</div>
+            <div class="kv__k">标题</div><div class="kv__v">{{ t.title }}</div>
+            <div class="kv__k">优先级</div><div class="kv__v">{{ t.priority }}</div>
+          </div>
+          {% if t.summary %}<div class="muted" style="margin-top: 6px;">{{ t.summary }}</div>{% endif %}
+          {% if t.next_step %}<div class="muted" style="margin-top: 6px;">next_step：{{ t.next_step }}</div>{% endif %}
+          <form method="post" action="/threads/reopen" style="margin-top: 8px;">
+            <input type="hidden" name="thread_id" value="{{ t.id }}" />
+            <button class="btn btn--ghost" type="submit">重新打开</button>
+          </form>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="muted">（暂无已关闭的线程）</div>
+    {% endif %}
+  </section>
+{% endblock %}
+

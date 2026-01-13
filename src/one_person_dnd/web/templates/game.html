@@ -3,10 +3,17 @@
 {% block title %}游戏 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>游戏</h1>
+  <div class="page-title-row">
+    <h1 style="margin: 0;">游戏</h1>
+    <div class="page-actions">
+      <button class="btn btn--ghost" type="button" id="toggle-sidebar-btn" data-sidebar-toggle>
+        收起信息栏
+      </button>
+    </div>
+  </div>
 
-  <div class="grid">
-    <section class="card">
+  <div class="grid grid--game">
+    <section class="card chat-card">
       <div class="card__title">对话</div>
 
       <div id="chat-history" class="chat-history">
@@ -33,22 +40,27 @@
           玩家输入
           <textarea class="input textarea" name="player_text" required placeholder="描述你的行动..."></textarea>
         </label>
-        <label class="label">
-          标签（用于检索 WorldBible，逗号分隔，可选）
-          <input class="input" name="tags" placeholder="酒馆,盗贼公会,某NPC" />
-        </label>
-        <label class="label">
-          当前状态（可选，给 DM 的额外上下文）
-          <textarea class="input textarea" name="state_block" placeholder="队伍状态、地点、时间、已知线索..."></textarea>
-        </label>
         <div class="row">
           <button class="btn" type="submit">发送</button>
+          <button class="btn btn--ghost" type="button" id="turn-cancel" style="display:none;">取消</button>
           <span id="turn-loading" class="htmx-indicator spinner">DM 思考中…</span>
         </div>
+
+        <details class="advanced" data-advanced-inputs>
+          <summary>高级选项（标签 / 额外上下文，可选）</summary>
+          <label class="label">
+            标签（用于检索 WorldBible，逗号分隔，可选）
+            <input class="input" name="tags" placeholder="酒馆,盗贼公会,某NPC" />
+          </label>
+          <label class="label">
+            当前状态（可选，给 DM 的额外上下文）
+            <textarea class="input textarea" name="state_block" placeholder="队伍状态、地点、时间、已知线索..."></textarea>
+          </label>
+        </details>
       </form>
     </section>
 
-    <aside class="card">
+    <aside class="card sidebar-card" id="game-sidebar">
       <div class="card__title">信息栏</div>
       <div class="muted"><a href="/saves">管理存档</a></div>
 
@@ -93,6 +105,15 @@
       <div class="card" style="margin-top: 12px;">
         <div class="card__title">本回合召回设定</div>
         <div id="recall-preview" class="muted">（发送一次行动后显示命中的 WorldBible 条目）</div>
+      </div>
+
+      <div
+        id="character-panel"
+        hx-get="/character/panel"
+        hx-trigger="load"
+        hx-swap="innerHTML"
+      >
+        <div class="muted" style="margin-top: 12px;">（加载角色卡中…）</div>
       </div>
     </aside>
   </div>

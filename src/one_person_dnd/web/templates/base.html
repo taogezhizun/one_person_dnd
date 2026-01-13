@@ -16,6 +16,7 @@
         <nav class="nav">
           <a href="/">主页</a>
           <a href="/saves">存档</a>
+          <a href="/threads">线程</a>
           <a href="/memory/world">世界设定</a>
           <a href="/memory/story">剧情摘要</a>
           <a href="/setup">配置</a>
@@ -28,6 +29,9 @@
 
     <script>
       (function () {
+        const SIDEBAR_STORAGE_KEY = "one_person_dnd.sidebarCollapsed";
+        const ADVANCED_STORAGE_KEY = "one_person_dnd.advancedInputsOpen";
+
         function renderMarkdown(root) {
           const scope = root || document;
           if (!window.marked || !window.DOMPurify) return;
@@ -45,9 +49,289 @@
           el.scrollTop = el.scrollHeight;
         }
 
+        function setSidebarCollapsed(collapsed) {
+          const body = document.body;
+          if (!body) return;
+          if (collapsed) body.classList.add("sidebar-collapsed");
+          else body.classList.remove("sidebar-collapsed");
+          try {
+            localStorage.setItem(SIDEBAR_STORAGE_KEY, collapsed ? "1" : "0");
+          } catch (e) {}
+
+          const btn = document.querySelector("[data-sidebar-toggle]");
+          if (btn) btn.textContent = collapsed ? "展开信息栏" : "收起信息栏";
+        }
+
+        function initSidebarToggle() {
+          const btn = document.querySelector("[data-sidebar-toggle]");
+          if (!btn) return;
+          try {
+            const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+            if (saved === "1") setSidebarCollapsed(true);
+          } catch (e) {}
+          btn.addEventListener("click", function () {
+            const collapsed = document.body.classList.contains("sidebar-collapsed");
+            setSidebarCollapsed(!collapsed);
+          });
+        }
+
+        function initAdvancedInputsToggle() {
+          const details = document.querySelector("[data-advanced-inputs]");
+          if (!details) return;
+          try {
+            const saved = localStorage.getItem(ADVANCED_STORAGE_KEY);
+            if (saved === "1") details.open = true;
+          } catch (e) {}
+          details.addEventListener("toggle", function () {
+            try {
+              localStorage.setItem(ADVANCED_STORAGE_KEY, details.open ? "1" : "0");
+            } catch (e) {}
+          });
+        }
+
+        function setTurnRequestUI(inFlight) {
+          const cancelBtn = document.getElementById("turn-cancel");
+          const submitBtn = document.querySelector("#turn-form button[type=submit]");
+          if (cancelBtn) cancelBtn.style.display = inFlight ? "inline-block" : "none";
+          if (submitBtn) submitBtn.disabled = inFlight;
+        }
+
+        let currentTurnAbortController = null;
+
+        function abortTurnRequest() {
+          if (currentTurnAbortController) {
+            try {
+              currentTurnAbortController.abort();
+            } catch (e) {}
+            currentTurnAbortController = null;
+            setTurnRequestUI(false);
+            return;
+          }
+          const form = document.getElementById("turn-form");
+          if (!form || !window.htmx) return;
+          try {
+            window.htmx.abort(form);
+          } catch (e) {}
+          setTurnRequestUI(false);
+        }
+
+        function appendTurnSkeleton(chatHistory, playerText) {
+          const turnEl = document.createElement("div");
+          turnEl.className = "chat__turn";
+
+          const userMsg = document.createElement("div");
+          userMsg.className = "chat__msg chat__msg--user";
+          userMsg.innerHTML = '<div class="chat__meta">你</div>';
+          const userContent = document.createElement("div");
+          userContent.className = "chat__content pre";
+          userContent.textContent = playerText || "";
+          userMsg.appendChild(userContent);
+
+          const asstMsg = document.createElement("div");
+          asstMsg.className = "chat__msg chat__msg--assistant";
+          asstMsg.innerHTML = '<div class="chat__meta">DM</div>';
+          const asstContent = document.createElement("div");
+          asstContent.className = "chat__content pre";
+          asstContent.id = "streaming-dm";
+          asstContent.textContent = "";
+          asstMsg.appendChild(asstContent);
+
+          turnEl.appendChild(userMsg);
+          turnEl.appendChild(asstMsg);
+          chatHistory.appendChild(turnEl);
+          return { turnEl, asstContent };
+        }
+
+        function renderFinalTurn(turn, recalledWorld, turnEl) {
+          const asstMsg = turnEl.querySelector(".chat__msg--assistant");
+          if (!asstMsg) return;
+          asstMsg.innerHTML = '<div class="chat__meta">DM</div>';
+
+          const narration = document.createElement("div");
+          narration.className = "chat__content md";
+          narration.setAttribute("data-md", "");
+          narration.textContent = (turn.dm && turn.dm.narration) || "";
+          asstMsg.appendChild(narration);
+
+          const choices = (turn.dm && turn.dm.choices) || [];
+          if (choices && choices.length > 0) {
+            const wrap = document.createElement("div");
+            wrap.className = "choices";
+            wrap.style.marginTop = "10px";
+            wrap.innerHTML = '<div class="muted">可选行动</div>';
+            const ol = document.createElement("ol");
+            choices.forEach((c) => {
+              const li = document.createElement("li");
+              li.textContent = c;
+              ol.appendChild(li);
+            });
+            wrap.appendChild(ol);
+            asstMsg.appendChild(wrap);
+          }
+
+          const dmNotes = (turn.dm && turn.dm.dm_notes) || "";
+          if (dmNotes && dmNotes.trim()) {
+            const det = document.createElement("details");
+            det.style.marginTop = "10px";
+            const sum = document.createElement("summary");
+            sum.className = "muted";
+            sum.textContent = "DM 备注（系统）";
+            const pre = document.createElement("pre");
+            pre.className = "pre md";
+            pre.setAttribute("data-md", "");
+            pre.textContent = dmNotes;
+            det.appendChild(sum);
+            det.appendChild(pre);
+            asstMsg.appendChild(det);
+          }
+
+          const mem = (turn.dm && turn.dm.memory_suggestions) || "";
+          if (mem && mem.trim()) {
+            const det = document.createElement("details");
+            det.style.marginTop = "10px";
+            const sum = document.createElement("summary");
+            sum.className = "muted";
+            sum.textContent = "剧情摘要建议";
+            const pre = document.createElement("pre");
+            pre.className = "pre md";
+            pre.setAttribute("data-md", "");
+            pre.textContent = mem;
+            det.appendChild(sum);
+            det.appendChild(pre);
+            asstMsg.appendChild(det);
+          }
+
+          const recall = document.getElementById("recall-preview");
+          if (recall) {
+            if (recalledWorld && recalledWorld.length > 0) {
+              const ol = document.createElement("ol");
+              ol.style.margin = "0";
+              ol.style.paddingLeft = "18px";
+              recalledWorld.forEach((e) => {
+                const li = document.createElement("li");
+                const t = document.createElement("span");
+                t.className = "muted";
+                t.textContent = `[${e.type}]`;
+                li.appendChild(t);
+                li.appendChild(document.createTextNode(\" \" + (e.title || \"\")));
+                if (e.tags) {
+                  const s = document.createElement(\"span\");
+                  s.className = \"muted\";
+                  s.textContent = `（${e.tags}）`;
+                  li.appendChild(document.createTextNode(\" \"));
+                  li.appendChild(s);
+                }
+                ol.appendChild(li);
+              });
+              recall.innerHTML = \"\";
+              recall.appendChild(ol);
+            } else {
+              recall.innerHTML = '<span class=\"muted\">（本回合未命中任何 WorldBible 条目；可以尝试填写更具体的标签）</span>';
+            }
+          }
+        }
+
+        function initTurnStreaming() {
+          const form = document.getElementById(\"turn-form\");
+          if (!form || !window.fetch || !window.ReadableStream) return;
+
+          form.addEventListener(
+            \"submit\",
+            async function (e) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+
+              const chatHistory = document.getElementById(\"chat-history\");
+              if (!chatHistory) return;
+
+              const ta = form.querySelector(\"textarea[name=player_text]\");
+              const playerText = ta && ta.value ? ta.value : \"\";
+              if (!playerText.trim()) return;
+
+              const { turnEl, asstContent } = appendTurnSkeleton(chatHistory, playerText);
+              scrollChatToBottom();
+
+              setTurnRequestUI(true);
+              currentTurnAbortController = new AbortController();
+
+              const fd = new FormData(form);
+              try {
+                const resp = await fetch(\"/game/turn/stream\", {
+                  method: \"POST\",
+                  body: fd,
+                  signal: currentTurnAbortController.signal,
+                  headers: { Accept: \"text/event-stream\" },
+                });
+                if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder(\"utf-8\");
+                let buf = \"\";
+
+                while (true) {
+                  const { value, done } = await reader.read();
+                  if (done) break;
+                  buf += decoder.decode(value, { stream: true });
+                  const chunks = buf.split(\"\\n\\n\");
+                  buf = chunks.pop() || \"\";
+                  for (const chunk of chunks) {
+                    const lines = chunk.split(\"\\n\").filter(Boolean);
+                    let event = \"message\";
+                    let data = \"\";
+                    for (const line of lines) {
+                      if (line.startsWith(\"event:\")) event = line.slice(6).trim();
+                      if (line.startsWith(\"data:\")) data += line.slice(5).trim();
+                    }
+                    if (!data) continue;
+                    let payload;
+                    try {
+                      payload = JSON.parse(data);
+                    } catch (_) {
+                      payload = { message: data };
+                    }
+
+                    if (event === \"delta\") {
+                      if (asstContent) asstContent.textContent += payload.text || \"\";
+                      scrollChatToBottom();
+                    } else if (event === \"final\") {
+                      renderFinalTurn(payload.turn, payload.recalled_world, turnEl);
+                      renderMarkdown(turnEl);
+                      scrollChatToBottom();
+                    } else if (event === \"error\") {
+                      const asstMsg = turnEl.querySelector(\".chat__msg--assistant\");
+                      if (asstMsg) {
+                        asstMsg.innerHTML =
+                          '<div class=\"chat__meta\">DM</div>' +
+                          '<div class=\"notice notice--err\"><div style=\"font-weight:700;\">请求失败</div><div class=\"muted\"></div></div>';
+                        const m = asstMsg.querySelector(\".notice .muted\");
+                        if (m) m.textContent = payload.message || \"未知错误\";
+                      }
+                      scrollChatToBottom();
+                    }
+                  }
+                }
+
+                if (ta) ta.value = \"\";
+              } catch (err) {
+                // aborted or network error: ignore
+              } finally {
+                currentTurnAbortController = null;
+                setTurnRequestUI(false);
+              }
+            },
+            true
+          );
+        }
+
         document.addEventListener("DOMContentLoaded", function () {
           renderMarkdown(document);
           scrollChatToBottom();
+          initSidebarToggle();
+          initAdvancedInputsToggle();
+          initTurnStreaming();
+
+          const cancelBtn = document.getElementById("turn-cancel");
+          if (cancelBtn) cancelBtn.addEventListener("click", abortTurnRequest);
         });
         document.body.addEventListener("htmx:afterSwap", function (evt) {
           renderMarkdown(evt.target);
@@ -56,12 +340,19 @@
           }
         });
 
+        document.body.addEventListener("htmx:beforeRequest", function (evt) {
+          const elt = evt.detail && evt.detail.elt;
+          if (!elt || elt.id !== "turn-form") return;
+          setTurnRequestUI(true);
+        });
+
         document.body.addEventListener("htmx:afterRequest", function (evt) {
           const elt = evt.detail && evt.detail.elt;
           if (!elt || elt.id !== "turn-form") return;
           // Clear only the main input; keep tags/state for convenience.
           const ta = elt.querySelector("textarea[name=player_text]");
           if (ta) ta.value = "";
+          setTurnRequestUI(false);
         });
       })();
     </script>
