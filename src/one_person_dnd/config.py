@@ -13,6 +13,10 @@ class LLMConfig:
     model: str
     timeout_seconds: float = 60.0
     provider: str = "openai_compat"
+    # Optional OpenAI-compatible sampling knobs (passed through if set).
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +61,24 @@ def load_llm_config(config_path: Path) -> LLMConfig | None:
     model = (sec.get("model") or "").strip()
     timeout_seconds = float((sec.get("timeout_seconds") or "60").strip())
 
+    def _read_opt_float(key: str) -> float | None:
+        raw = (sec.get(key) or "").strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except Exception:
+            return None
+
+    def _read_opt_int(key: str) -> int | None:
+        raw = (sec.get(key) or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except Exception:
+            return None
+
     # api_key may be empty for local/self-hosted OpenAI-compatible servers.
     if not base_url or not model:
         return None
@@ -67,6 +89,9 @@ def load_llm_config(config_path: Path) -> LLMConfig | None:
         api_key=api_key,
         model=model,
         timeout_seconds=timeout_seconds,
+        temperature=_read_opt_float("temperature"),
+        top_p=_read_opt_float("top_p"),
+        max_tokens=_read_opt_int("max_tokens"),
     )
 
 
@@ -78,6 +103,9 @@ def save_llm_config(config_path: Path, cfg: LLMConfig) -> None:
         "api_key": cfg.api_key.strip(),
         "model": cfg.model.strip(),
         "timeout_seconds": str(cfg.timeout_seconds),
+        "temperature": "" if cfg.temperature is None else str(cfg.temperature),
+        "top_p": "" if cfg.top_p is None else str(cfg.top_p),
+        "max_tokens": "" if cfg.max_tokens is None else str(cfg.max_tokens),
     }
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with config_path.open("w", encoding="utf-8") as f:

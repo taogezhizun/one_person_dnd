@@ -6,6 +6,19 @@
   <div class="page-title-row">
     <h1 style="margin: 0;">游戏</h1>
     <div class="page-actions">
+      <form method="post" action="/saves/session/enter" class="inline-form">
+        <select class="input input--compact" name="session_id">
+          {% for s in sessions_list %}
+            <option value="{{ s.id }}" {% if s.id == session_id %}selected{% endif %}>
+              #{{ s.id }} {{ s.title }}
+            </option>
+          {% endfor %}
+        </select>
+        <button class="btn btn--ghost" type="submit">切换会话</button>
+      </form>
+      {% if pending_count and pending_count > 0 %}
+        <span class="notice notice--err notice--compact">待确认变更：{{ pending_count }}</span>
+      {% endif %}
       <button class="btn btn--ghost" type="button" id="toggle-sidebar-btn" data-sidebar-toggle>
         收起信息栏
       </button>
@@ -45,19 +58,34 @@
           <button class="btn btn--ghost" type="button" id="turn-cancel" style="display:none;">取消</button>
           <span id="turn-loading" class="htmx-indicator spinner">DM 思考中…</span>
         </div>
+        <div class="muted">快捷键：Ctrl/Cmd + Enter 发送，Esc 取消。</div>
 
         <details class="advanced" data-advanced-inputs>
           <summary>高级选项（标签 / 额外上下文，可选）</summary>
-          <label class="label">
-            标签（用于检索 WorldBible，逗号分隔，可选）
-            <input class="input" name="tags" placeholder="酒馆,盗贼公会,某NPC" />
-          </label>
-          <label class="label">
-            当前状态（可选，给 DM 的额外上下文）
-            <textarea class="input textarea" name="state_block" placeholder="队伍状态、地点、时间、已知线索..."></textarea>
-          </label>
+        <label class="label">
+          标签（用于检索 WorldBible，逗号分隔，可选）
+          <input class="input" name="tags" placeholder="酒馆,盗贼公会,某NPC" />
+        </label>
+        <label class="label">
+          当前状态（可选，给 DM 的额外上下文）
+          <textarea class="input textarea" name="state_block" placeholder="队伍状态、地点、时间、已知线索..."></textarea>
+        </label>
         </details>
       </form>
+
+      <div class="card" style="margin-top: 12px;">
+        <div class="card__title">快速掷骰</div>
+        <form
+          class="inline-form"
+          hx-post="/game/roll"
+          hx-target="#quick-roll-result"
+          hx-swap="innerHTML"
+        >
+          <input class="input input--compact" name="roll_expr_text" placeholder="d20 / 1d20+5 / 2d6-1" />
+          <button class="btn btn--ghost" type="submit">掷骰</button>
+        </form>
+        <div id="quick-roll-result" style="margin-top: 10px;" class="muted">（在此显示掷骰结果）</div>
+      </div>
     </section>
 
     <aside class="card sidebar-card" id="game-sidebar">
@@ -67,6 +95,7 @@
       <div class="kv" style="margin-top: 8px;">
         <div class="kv__k">Campaign</div><div class="kv__v">{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</div>
         <div class="kv__k">Session</div><div class="kv__v">{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</div>
+        <div class="kv__k">待处理变更</div><div class="kv__v">{% if pending_count and pending_count > 0 %}{{ pending_count }}{% else %}0{% endif %}</div>
       </div>
 
       <form
@@ -101,6 +130,36 @@
         </div>
         <div id="sidebar-save-result"></div>
       </form>
+
+      <div class="card" style="margin-top: 12px;">
+        <div class="card__title">金手指控制台（会话级）</div>
+        <form
+          class="form"
+          hx-post="/cheats/save"
+          hx-target="#cheat-save-result"
+          hx-swap="innerHTML"
+          hx-indicator="#cheat-saving"
+        >
+          <input type="hidden" name="session_id" value="{{ session_id }}" />
+          <label class="label row" style="margin-top: 0; align-items: center;">
+            <input type="checkbox" name="enabled" value="1" {% if cheat_enabled %}checked{% endif %} />
+            启用金手指控制 prompt
+          </label>
+          <label class="label">
+            控制 prompt（仅当前会话生效）
+            <textarea
+              class="input textarea"
+              name="cheat_prompt"
+              placeholder="例如：允许玩家在剧情关键节点触发一次‘命运改写’，并优先提供非致死解法。"
+            >{{ cheat_prompt }}</textarea>
+          </label>
+          <div class="row">
+            <button class="btn" type="submit">保存金手指设置</button>
+            <span id="cheat-saving" class="htmx-indicator spinner">保存中…</span>
+          </div>
+          <div id="cheat-save-result"></div>
+        </form>
+      </div>
 
       <div class="card" style="margin-top: 12px;">
         <div class="card__title">本回合召回设定</div>

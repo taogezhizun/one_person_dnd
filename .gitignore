@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .DS_Store
 
+
 # runtime data (local)
 .one_person_dnd/
 
@@ -10,10 +11,13 @@ __pycache__/
 api_config.ini
 
 # cursor IDE config
-.cursor/
+.cursor*
 
 # python build artifacts
 *.egg-info/
 build/
 dist/
 .pytest_cache/
+
+# logs
+*.log

@@ -4,13 +4,15 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
-from one_person_dnd.config import AppState, load_app_state, save_app_state
+from one_person_dnd.config import AppState, LLMConfig, load_app_state, load_llm_config, save_app_state
 from one_person_dnd.db import get_connection
-from one_person_dnd.db.repos import campaigns, sessions
+from one_person_dnd.db.repos import app_settings, campaigns, llm_profiles, sessions
 from one_person_dnd.paths import ensure_app_dirs
 
 WEB_DIR = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+
+ACTIVE_LLM_PROFILE_KEY = "active_llm_profile_id"
 
 
 def ensure_default_campaign_session() -> tuple[int, int]:
@@ -73,4 +75,64 @@ def get_current_campaign_session() -> tuple[int, int]:
 
     save_app_state(paths.config_path, AppState(active_campaign_id=campaign_id, active_session_id=session_id))
     return campaign_id, session_id
+
+
+def ensure_default_llm_profile_from_ini() -> None:
+    """
+    If no LLM profiles exist in DB, and api_config.ini has [llm] configured,
+    import it as a default profile and set it active.
+    """
+    paths = ensure_app_dirs()
+    conn = get_connection(paths.db_path)
+    try:
+        existing = llm_profiles.list_profiles(conn)
+        if existing:
+            return
+        ini_cfg = load_llm_config(paths.config_path)
+        if ini_cfg is None:
+            return
+        profile_id = llm_profiles.create_profile(
+            conn,
+            name="默认配置",
+            provider=(ini_cfg.provider or "openai_compat"),
+            base_url=ini_cfg.base_url,
+            api_key=ini_cfg.api_key,
+            model=ini_cfg.model,
+            timeout_seconds=ini_cfg.timeout_seconds,
+        )
+        app_settings.set(conn, ACTIVE_LLM_PROFILE_KEY, str(profile_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_active_llm_config() -> LLMConfig | None:
+    """
+    Prefer DB profiles. Fall back to api_config.ini [llm] if no active profile.
+    """
+    ensure_default_llm_profile_from_ini()
+    paths = ensure_app_dirs()
+    conn = get_connection(paths.db_path)
+    try:
+        active_id = app_settings.get(conn, ACTIVE_LLM_PROFILE_KEY)
+        if active_id:
+            try:
+                pid = int(active_id)
+            except Exception:
+                pid = 0
+            if pid:
+                row = llm_profiles.get_profile(conn, pid)
+                if row:
+                    return LLMConfig(
+                        provider=(row.get("provider") or "openai_compat"),
+                        base_url=(row.get("base_url") or ""),
+                        api_key=(row.get("api_key") or ""),
+                        model=(row.get("model") or ""),
+                        timeout_seconds=float(row.get("timeout_seconds") or 60.0),
+                    )
+    finally:
+        conn.close()
+
+    # fallback (legacy)
+    return load_llm_config(paths.config_path)
 

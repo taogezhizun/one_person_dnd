@@ -19,11 +19,75 @@ from one_person_dnd.db.repos import (
     world_bible,
 )
 from one_person_dnd.engine.constants import HISTORY_TURNS_FOR_PROMPT, STORY_JOURNAL_FOR_PROMPT
+from one_person_dnd.engine.dice import DiceEvent, format_events_for_prompt, roll_events_from_text
 from one_person_dnd.engine.parser import DMStructuredResponse, parse_dm_text
 from one_person_dnd.engine.prompt_builder import RetrievedMemory, build_dm_messages
 from one_person_dnd.llm import ChatMessage, create_llm_client
 
 logger = logging.getLogger("one_person_dnd.turn")
+
+_REQUIRED_PROTOCOL_DELIMS = (
+    "===NARRATION===",
+    "===CHOICES===",
+    "===DM_NOTES===",
+    "===MEMORY===",
+)
+
+
+def _has_required_protocol_delims(text: str) -> bool:
+    t = text or ""
+    return all(d in t for d in _REQUIRED_PROTOCOL_DELIMS)
+
+
+def _build_protocol_repair_prompt(raw: str) -> str:
+    return (
+        "你刚才的回复未严格按分隔符协议输出。请在不改变事实/剧情内容的前提下，将其“重新排版”为严格协议格式。\n"
+        "要求：\n"
+        "1) 必须包含并且仅包含这些分隔符段落（分隔符单独占一行，大小写一致）：\n"
+        "===NARRATION===\n"
+        "===CHOICES===\n"
+        "===DM_NOTES===\n"
+        "===MEMORY===\n"
+        "可选（若确实需要）：===STATE_DELTA=== 与 ===THREAD_UPDATES===，内容为 JSON 对象。\n"
+        "2) 禁止输出任何分隔符之外的标题/前缀/解释。\n"
+        "3) CHOICES 段必须给出 3-6 条，以 - 开头，每条一行。\n"
+        "\n"
+        "【原始输出】\n"
+        f"{(raw or '').strip()}\n"
+    )
+
+
+def ensure_dm_protocol_output(
+    client,
+    messages: list[ChatMessage],
+    dm_raw: str,
+    *,
+    max_retries: int = 1,
+) -> tuple[str, bool]:
+    """
+    Ensure DM output follows the delimiter protocol. If not, ask the model to reformat once.
+    Returns: (final_text, repaired?)
+    """
+    if _has_required_protocol_delims(dm_raw):
+        return dm_raw, False
+
+    last = dm_raw
+    for attempt in range(max_retries):
+        repair = _build_protocol_repair_prompt(last)
+        logger.warning(
+            "dm_protocol_missing attempt=%s raw_len=%s",
+            attempt + 1,
+            len((last or "").strip()),
+        )
+        last = client.chat(messages + [ChatMessage(role="user", content=repair)])
+        if _has_required_protocol_delims(last):
+            return last, True
+    return last, True
+
+
+def chat_dm_with_protocol_retry(client, messages: list[ChatMessage], *, max_retries: int = 1) -> tuple[str, bool]:
+    dm_raw = client.chat(messages)
+    return ensure_dm_protocol_output(client, messages, dm_raw, max_retries=max_retries)
 
 
 @dataclass(frozen=True)
@@ -32,6 +96,7 @@ class TurnResult:
     dm_raw_text: str
     dm: DMStructuredResponse
     recalled_world: list[dict]
+    dice_events: list[DiceEvent]
 
 
 def _fetch_world_bible(
@@ -166,19 +231,21 @@ def persist_turn(
     dm_raw: str,
     dm_struct: DMStructuredResponse,
     recalled_world: list[dict],
+    dice_events: list[DiceEvent] | None = None,
 ) -> TurnResult:
     """
     Persist turn logs, story journal, pending change requests, and rollup summaries.
     Caller is responsible for committing.
     """
     turn_index = _next_turn_index(conn, session_id)
+    safe_dice_events = list(dice_events or [])
     turn_logs.insert_turn_log(
         conn,
         session_id=session_id,
         turn_index=turn_index,
         player_text=player_text,
         dm_text=dm_raw,
-        dice_events_json=json.dumps([], ensure_ascii=False),
+        dice_events_json=json.dumps(safe_dice_events, ensure_ascii=False),
     )
 
     if (dm_struct.state_delta_json or "").strip():
@@ -205,8 +272,15 @@ def persist_turn(
             conn, session_id=session_id, scene_id=scene_id, summary=mem, turn_index=turn_index
         )
 
+    sessions.touch_last_played(conn, session_id=session_id)
     _maybe_rollup_summaries(conn, session_id=session_id, current_turn_index=turn_index)
-    return TurnResult(turn_index=turn_index, dm_raw_text=dm_raw, dm=dm_struct, recalled_world=recalled_world)
+    return TurnResult(
+        turn_index=turn_index,
+        dm_raw_text=dm_raw,
+        dm=dm_struct,
+        recalled_world=recalled_world,
+        dice_events=safe_dice_events,
+    )
 
 
 def run_turn(
@@ -223,13 +297,19 @@ def run_turn(
     conn = get_connection(db_path)
     try:
         memory_cfg = memory_cfg or MemoryConfig()
+        dice_events = roll_events_from_text(player_text, max_rolls=5)
+        effective_state_block = (state_block or "").strip()
+        if dice_events:
+            dice_block = "【系统掷骰结果】\n" + format_events_for_prompt(dice_events)
+            effective_state_block = (effective_state_block + "\n\n" + dice_block).strip() if effective_state_block else dice_block
+
         t0 = time.perf_counter()
         messages, world_preview = build_turn_messages_and_preview(
             conn,
             campaign_id=campaign_id,
             session_id=session_id,
             player_text=player_text,
-            state_block=state_block,
+            state_block=effective_state_block,
             tags=tags,
             memory_cfg=memory_cfg,
         )
@@ -238,7 +318,7 @@ def run_turn(
         prompt_chars = sum(len(m.content or "") for m in messages)
 
         client = create_llm_client(llm_cfg)
-        dm_raw = client.chat(messages)
+        dm_raw, repaired = chat_dm_with_protocol_retry(client, messages, max_retries=1)
         t_llm = time.perf_counter()
         dm_struct = parse_dm_text(dm_raw)
         t_parse = time.perf_counter()
@@ -250,16 +330,18 @@ def run_turn(
             dm_raw=dm_raw,
             dm_struct=dm_struct,
             recalled_world=world_preview,
+            dice_events=dice_events,
         )
         t_persist = time.perf_counter()
         conn.commit()
 
         logger.info(
-            "turn_done non_stream session=%s turn=%s prompt_chars=%s msg_count=%s prompt_ms=%s llm_ms=%s parse_ms=%s persist_ms=%s total_ms=%s",
+            "turn_done non_stream session=%s turn=%s prompt_chars=%s msg_count=%s repaired=%s prompt_ms=%s llm_ms=%s parse_ms=%s persist_ms=%s total_ms=%s",
             session_id,
             result.turn_index,
             prompt_chars,
             msg_count,
+            1 if repaired else 0,
             int((t_prompt - t0) * 1000),
             int((t_llm - t_prompt) * 1000),
             int((t_parse - t_llm) * 1000),

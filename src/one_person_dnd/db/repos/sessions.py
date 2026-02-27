@@ -43,18 +43,60 @@ def get_session_sidebar(conn: sqlite3.Connection, session_id: int) -> sqlite3.Ro
 
 
 def list_sessions(conn: sqlite3.Connection, campaign_id: int) -> list[dict]:
-    rows = conn.execute(
-        "SELECT id, title, current_scene, created_at FROM sessions WHERE campaign_id = ? ORDER BY id DESC",
-        (campaign_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+              s.id,
+              s.title,
+              s.current_scene,
+              s.created_at,
+              s.last_played_at,
+              COALESCE(s.status, 'active') AS status,
+              s.parent_session_id,
+              COALESCE(ss.snapshot_count, 0) AS snapshot_count
+            FROM sessions s
+            LEFT JOIN (
+              SELECT session_id, COUNT(*) AS snapshot_count
+              FROM session_snapshots
+              GROUP BY session_id
+            ) ss ON ss.session_id = s.id
+            WHERE s.campaign_id = ?
+            ORDER BY COALESCE(s.last_played_at, s.created_at) DESC, s.id DESC
+            """,
+            (campaign_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        # Compatibility fallback before v7 migration.
+        rows = conn.execute(
+            "SELECT id, title, current_scene, created_at FROM sessions WHERE campaign_id = ? ORDER BY id DESC",
+            (campaign_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
-def create_session(conn: sqlite3.Connection, *, campaign_id: int, title: str, current_scene: str) -> int:
-    conn.execute(
-        "INSERT INTO sessions(campaign_id, title, current_scene) VALUES (?, ?, ?)",
-        (campaign_id, title, current_scene),
-    )
+def create_session(
+    conn: sqlite3.Connection,
+    *,
+    campaign_id: int,
+    title: str,
+    current_scene: str,
+    parent_session_id: int | None = None,
+) -> int:
+    try:
+        conn.execute(
+            """
+            INSERT INTO sessions(campaign_id, title, current_scene, parent_session_id, status, last_played_at)
+            VALUES (?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
+            """,
+            (campaign_id, title, current_scene, parent_session_id),
+        )
+    except sqlite3.OperationalError:
+        conn.execute(
+            "INSERT INTO sessions(campaign_id, title, current_scene) VALUES (?, ?, ?)",
+            (campaign_id, title, current_scene),
+        )
     row = conn.execute("SELECT last_insert_rowid()").fetchone()
     return int(row[0])
 
@@ -79,6 +121,40 @@ def update_session_sidebar(
         """
         UPDATE sessions
         SET current_scene = ?, session_state = ?, pinned_world_notes = ?
+        WHERE id = ? AND campaign_id = ?
+        """,
+        (current_scene, session_state, pinned_world_notes, session_id, campaign_id),
+    )
+
+
+def touch_last_played(conn: sqlite3.Connection, *, session_id: int) -> None:
+    try:
+        conn.execute(
+            """
+            UPDATE sessions
+            SET last_played_at = CURRENT_TIMESTAMP, status = 'active'
+            WHERE id = ?
+            """,
+            (session_id,),
+        )
+    except sqlite3.OperationalError:
+        # Compatibility fallback before v7 migration.
+        return
+
+
+def update_session_from_snapshot(
+    conn: sqlite3.Connection,
+    *,
+    campaign_id: int,
+    session_id: int,
+    current_scene: str,
+    session_state: str,
+    pinned_world_notes: str,
+) -> None:
+    conn.execute(
+        """
+        UPDATE sessions
+        SET current_scene = ?, session_state = ?, pinned_world_notes = ?, last_played_at = CURRENT_TIMESTAMP
         WHERE id = ? AND campaign_id = ?
         """,
         (current_scene, session_state, pinned_world_notes, session_id, campaign_id),

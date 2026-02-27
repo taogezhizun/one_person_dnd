@@ -51,6 +51,12 @@ class OpenAICompatClient:
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": False,
         }
+        if self._cfg.temperature is not None:
+            payload["temperature"] = self._cfg.temperature
+        if self._cfg.top_p is not None:
+            payload["top_p"] = self._cfg.top_p
+        if self._cfg.max_tokens is not None:
+            payload["max_tokens"] = self._cfg.max_tokens
 
         # Make read timeout configurable (models may take >60s).
         # Use small connect/write timeouts to fail fast on networking issues.
@@ -100,9 +106,24 @@ class OpenAICompatClient:
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": True,
         }
+        if self._cfg.temperature is not None:
+            payload["temperature"] = self._cfg.temperature
+        if self._cfg.top_p is not None:
+            payload["top_p"] = self._cfg.top_p
+        if self._cfg.max_tokens is not None:
+            payload["max_tokens"] = self._cfg.max_tokens
 
+        # Many OpenAI-compatible servers don't reliably send "data: [DONE]" or close the connection.
+        # We therefore treat "no bytes for N seconds" as end-of-stream *if we've already received tokens*.
+        # Treat "no bytes for N seconds" as end-of-stream (only after we've received some tokens).
+        # Use a relatively generous threshold to avoid prematurely ending streams where the model
+        # pauses (thinking) between chunks.
+        stream_inactivity_timeout_s = max(90.0, float(self._cfg.timeout_seconds or 0))
+        timeout = httpx.Timeout(connect=10.0, read=stream_inactivity_timeout_s, write=10.0, pool=10.0)
+
+        got_any = False
         try:
-            with httpx.Client(timeout=self._cfg.timeout_seconds) as client:
+            with httpx.Client(timeout=timeout) as client:
                 with client.stream("POST", self._endpoint(), headers=self._headers(), json=payload) as resp:
                     resp.raise_for_status()
                     for line in resp.iter_lines():
@@ -121,9 +142,17 @@ class OpenAICompatClient:
                             delta = data["choices"][0].get("delta") or {}
                             content = delta.get("content")
                             if content:
+                                got_any = True
                                 yield content
                         except Exception:
                             continue
+        except httpx.ReadTimeout as e:
+            # If the model/provider paused too long or never closed the stream:
+            # - If we already got tokens, finalize upstream with what we have.
+            # - If we got nothing, treat as a real error.
+            if got_any:
+                return
+            raise LLMClientError(f"LLM stream timed out before any data: {e}") from e
         except httpx.HTTPStatusError as e:
             body = ""
             try:

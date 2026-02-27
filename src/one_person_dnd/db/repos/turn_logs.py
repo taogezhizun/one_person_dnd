@@ -14,7 +14,7 @@ def get_next_turn_index(conn: sqlite3.Connection, session_id: int) -> int:
 def list_turn_logs(conn: sqlite3.Connection, *, session_id: int, limit: int = 50) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT turn_index, player_text, dm_text, created_at
+        SELECT turn_index, player_text, dm_text, dice_events, created_at
         FROM turn_logs
         WHERE session_id = ?
         ORDER BY turn_index DESC

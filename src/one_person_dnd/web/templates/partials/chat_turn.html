@@ -2,6 +2,25 @@
   <div class="chat__msg chat__msg--user">
     <div class="chat__meta">你</div>
     <div class="chat__content pre">{{ turn.player_text | e }}</div>
+    {% if turn.dice_events and turn.dice_events|length > 0 %}
+      <div class="dice-events" style="margin-top: 8px;">
+        <div class="muted">系统掷骰</div>
+        <ul style="margin: 6px 0 0; padding-left: 18px;">
+          {% for e in turn.dice_events %}
+            <li>
+              <span class="muted">{{ e.expr }}</span>
+              =&gt; [{{ e.rolls | join(", ") }}]
+              {% if e.modifier %}
+                {{ "%+d"|format(e.modifier) }}
+              {% else %}
+                +0
+              {% endif %}
+              = <strong>{{ e.total }}</strong>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
   </div>
 
   <div class="chat__msg chat__msg--assistant">

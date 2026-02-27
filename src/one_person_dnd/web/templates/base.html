@@ -17,6 +17,8 @@
           <a href="/">主页</a>
           <a href="/saves">存档</a>
           <a href="/threads">线程</a>
+          <a href="/models">模型</a>
+          <a href="/new">新冒险</a>
           <a href="/memory/world">世界设定</a>
           <a href="/memory/story">剧情摘要</a>
           <a href="/setup">配置</a>
@@ -31,6 +33,7 @@
       (function () {
         const SIDEBAR_STORAGE_KEY = "one_person_dnd.sidebarCollapsed";
         const ADVANCED_STORAGE_KEY = "one_person_dnd.advancedInputsOpen";
+        const SCROLL_BTN_ID = "scroll-to-bottom-btn";
 
         function renderMarkdown(root) {
           const scope = root || document;
@@ -46,7 +49,71 @@
         function scrollChatToBottom() {
           const el = document.getElementById("chat-history");
           if (!el) return;
-          el.scrollTop = el.scrollHeight;
+          el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+        }
+
+        function isNearBottom(el, thresholdPx) {
+          if (!el) return true;
+          const threshold = typeof thresholdPx === "number" ? thresholdPx : 120;
+          const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+          return dist <= threshold;
+        }
+
+        let scrollBtnEl = null;
+        let shouldFollowScroll = true; // follow only when user was already near bottom
+        let hasUnreadNewContent = false;
+        let pendingAutoScroll = false;
+        let lastTurnShouldFollowScroll = true; // for non-stream (htmx) fallback
+
+        function ensureScrollButton() {
+          if (scrollBtnEl) return scrollBtnEl;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.id = SCROLL_BTN_ID;
+          btn.className = "scroll-bottom-btn";
+          btn.style.display = "none";
+          btn.textContent = "回到底部";
+          btn.addEventListener("click", function () {
+            const chat = document.getElementById("chat-history");
+            if (!chat) return;
+            hasUnreadNewContent = false;
+            shouldFollowScroll = true;
+            updateScrollButton();
+            chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
+          });
+          document.body.appendChild(btn);
+          scrollBtnEl = btn;
+          return btn;
+        }
+
+        function updateScrollButton() {
+          const chat = document.getElementById("chat-history");
+          const btn = ensureScrollButton();
+          if (!chat) {
+            btn.style.display = "none";
+            return;
+          }
+          const near = isNearBottom(chat, 120);
+          if (near) {
+            btn.style.display = "none";
+            hasUnreadNewContent = false;
+            return;
+          }
+          btn.style.display = "inline-flex";
+          btn.textContent = hasUnreadNewContent ? "有新消息 · 回到底部" : "回到底部";
+        }
+
+        function scheduleAutoScroll() {
+          if (pendingAutoScroll) return;
+          pendingAutoScroll = true;
+          requestAnimationFrame(() => {
+            pendingAutoScroll = false;
+            const chat = document.getElementById("chat-history");
+            if (!chat) return;
+            if (!shouldFollowScroll) return;
+            chat.scrollTo({ top: chat.scrollHeight, behavior: "auto" });
+            updateScrollButton();
+          });
         }
 
         function setSidebarCollapsed(collapsed) {
@@ -147,6 +214,30 @@
           if (!asstMsg) return;
           asstMsg.innerHTML = '<div class="chat__meta">DM</div>';
 
+          const diceEvents = (turn && turn.dice_events) || [];
+          if (diceEvents && diceEvents.length > 0) {
+            const wrap = document.createElement("div");
+            wrap.className = "dice-events";
+            const title = document.createElement("div");
+            title.className = "muted";
+            title.textContent = "系统掷骰";
+            wrap.appendChild(title);
+            const ul = document.createElement("ul");
+            ul.style.margin = "6px 0 0";
+            ul.style.paddingLeft = "18px";
+            diceEvents.forEach((e) => {
+              const li = document.createElement("li");
+              const expr = e.expr || "";
+              const rolls = Array.isArray(e.rolls) ? e.rolls.join(", ") : "";
+              const mod = Number(e.modifier || 0);
+              const total = Number(e.total || 0);
+              li.innerHTML = `<span class="muted">${expr}</span> =&gt; [${rolls}] ${mod >= 0 ? "+" + mod : mod} = <strong>${total}</strong>`;
+              ul.appendChild(li);
+            });
+            wrap.appendChild(ul);
+            asstMsg.appendChild(wrap);
+          }
+
           const narration = document.createElement("div");
           narration.className = "chat__content md";
           narration.setAttribute("data-md", "");
@@ -244,12 +335,19 @@
               const chatHistory = document.getElementById(\"chat-history\");
               if (!chatHistory) return;
 
+              // Decide whether to follow scroll based on user's current position.
+              lastTurnShouldFollowScroll = isNearBottom(chatHistory, 120);
+              shouldFollowScroll = lastTurnShouldFollowScroll;
+              hasUnreadNewContent = false;
+              updateScrollButton();
+
               const ta = form.querySelector(\"textarea[name=player_text]\");
               const playerText = ta && ta.value ? ta.value : \"\";
               if (!playerText.trim()) return;
 
               const { turnEl, asstContent } = appendTurnSkeleton(chatHistory, playerText);
-              scrollChatToBottom();
+              if (shouldFollowScroll) scheduleAutoScroll();
+              else updateScrollButton();
 
               setTurnRequestUI(true);
               currentTurnAbortController = new AbortController();
@@ -292,11 +390,21 @@
 
                     if (event === \"delta\") {
                       if (asstContent) asstContent.textContent += payload.text || \"\";
-                      scrollChatToBottom();
+                      if (shouldFollowScroll) {
+                        scheduleAutoScroll();
+                      } else {
+                        hasUnreadNewContent = true;
+                        updateScrollButton();
+                      }
                     } else if (event === \"final\") {
                       renderFinalTurn(payload.turn, payload.recalled_world, turnEl);
                       renderMarkdown(turnEl);
-                      scrollChatToBottom();
+                      if (shouldFollowScroll) {
+                        scheduleAutoScroll();
+                      } else {
+                        hasUnreadNewContent = true;
+                        updateScrollButton();
+                      }
                     } else if (event === \"error\") {
                       const asstMsg = turnEl.querySelector(\".chat__msg--assistant\");
                       if (asstMsg) {
@@ -306,7 +414,8 @@
                         const m = asstMsg.querySelector(\".notice .muted\");
                         if (m) m.textContent = payload.message || \"未知错误\";
                       }
-                      scrollChatToBottom();
+                      if (shouldFollowScroll) scheduleAutoScroll();
+                      else updateScrollButton();
                     }
                   }
                 }
@@ -323,12 +432,48 @@
           );
         }
 
+        function initTurnShortcuts() {
+          const form = document.getElementById("turn-form");
+          if (!form) return;
+          const ta = form.querySelector("textarea[name=player_text]");
+          if (!ta) return;
+          ta.addEventListener("keydown", function (e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              form.requestSubmit();
+              return;
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              abortTurnRequest();
+            }
+          });
+        }
+
         document.addEventListener("DOMContentLoaded", function () {
           renderMarkdown(document);
           scrollChatToBottom();
           initSidebarToggle();
           initAdvancedInputsToggle();
           initTurnStreaming();
+          initTurnShortcuts();
+
+          // Scroll-follow button + scroll tracking (only on pages with chat-history).
+          ensureScrollButton();
+          const chat = document.getElementById("chat-history");
+          if (chat) {
+            updateScrollButton();
+            chat.addEventListener("scroll", function () {
+              const near = isNearBottom(chat, 120);
+              if (near) {
+                shouldFollowScroll = true;
+                hasUnreadNewContent = false;
+              } else {
+                shouldFollowScroll = false;
+              }
+              updateScrollButton();
+            });
+          }
 
           const cancelBtn = document.getElementById("turn-cancel");
           if (cancelBtn) cancelBtn.addEventListener("click", abortTurnRequest);
@@ -336,7 +481,12 @@
         document.body.addEventListener("htmx:afterSwap", function (evt) {
           renderMarkdown(evt.target);
           if (evt.target && evt.target.id === "chat-history") {
-            scrollChatToBottom();
+            if (lastTurnShouldFollowScroll) {
+              scheduleAutoScroll();
+            } else {
+              hasUnreadNewContent = true;
+              updateScrollButton();
+            }
           }
         });
 
@@ -344,6 +494,11 @@
           const elt = evt.detail && evt.detail.elt;
           if (!elt || elt.id !== "turn-form") return;
           setTurnRequestUI(true);
+          const chat = document.getElementById("chat-history");
+          lastTurnShouldFollowScroll = isNearBottom(chat, 120);
+          shouldFollowScroll = lastTurnShouldFollowScroll;
+          hasUnreadNewContent = false;
+          updateScrollButton();
         });
 
         document.body.addEventListener("htmx:afterRequest", function (evt) {

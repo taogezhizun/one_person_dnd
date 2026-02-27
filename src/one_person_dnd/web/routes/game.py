@@ -7,14 +7,15 @@ import time
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
-from one_person_dnd.config import AppState, load_llm_config, load_memory_config, save_app_state
+from one_person_dnd.config import AppState, load_memory_config, save_app_state
 from one_person_dnd.db import get_connection
-from one_person_dnd.db.repos import campaigns, sessions, turn_logs
-from one_person_dnd.engine.orchestrator import build_turn_messages_and_preview, persist_turn
+from one_person_dnd.db.repos import campaigns, session_cheats, sessions, state_change_requests, turn_logs
+from one_person_dnd.engine.dice import format_events_for_prompt, roll_events_from_text, roll_expr
+from one_person_dnd.engine.orchestrator import build_turn_messages_and_preview, ensure_dm_protocol_output, persist_turn
 from one_person_dnd.engine.parser import parse_dm_text
 from one_person_dnd.llm import LLMClientError, create_llm_client
 from one_person_dnd.paths import ensure_app_dirs
-from one_person_dnd.web.routes.common import get_current_campaign_session, templates
+from one_person_dnd.web.routes.common import get_current_campaign_session, load_active_llm_config, templates
 
 router = APIRouter()
 logger = logging.getLogger("one_person_dnd.web")
@@ -28,21 +29,36 @@ def game(request: Request) -> HTMLResponse:
     conn = get_connection(paths.db_path)
     try:
         campaign_name = campaigns.get_campaign_name(conn, campaign_id) or ""
+        sessions_list = sessions.list_sessions(conn, campaign_id)
         s = sessions.get_session_sidebar(conn, session_id)
         session_title = s["title"] if s else ""
         current_scene = s["current_scene"] if s else ""
         session_state = s["session_state"] if s and "session_state" in s.keys() else ""
         pinned_world_notes = s["pinned_world_notes"] if s and "pinned_world_notes" in s.keys() else ""
+        pending_count = len(state_change_requests.list_pending(conn, session_id=session_id, limit=200))
+        cheat_cfg = session_cheats.get_cheat(conn, session_id=session_id) or {}
+        cheat_enabled = bool(int(cheat_cfg.get("enabled") or 0))
+        cheat_prompt = (cheat_cfg.get("cheat_prompt") or "").strip()
 
         rows = turn_logs.list_turn_logs(conn, session_id=session_id, limit=50)
         turns = []
         for r in rows[::-1]:
             dm = parse_dm_text((r.get("dm_text") or "").strip())
+            dice_events_raw = (r.get("dice_events") or "").strip()
+            dice_events: list[dict] = []
+            if dice_events_raw:
+                try:
+                    loaded = json.loads(dice_events_raw)
+                    if isinstance(loaded, list):
+                        dice_events = [it for it in loaded if isinstance(it, dict)]
+                except Exception:
+                    dice_events = []
             turns.append(
                 {
                     "turn_index": int(r["turn_index"]),
                     "player_text": (r.get("player_text") or ""),
                     "dm": dm,
+                    "dice_events": dice_events,
                     "created_at": (r.get("created_at") or ""),
                 }
             )
@@ -60,6 +76,10 @@ def game(request: Request) -> HTMLResponse:
             "current_scene": current_scene,
             "session_state": session_state or "",
             "pinned_world_notes": pinned_world_notes or "",
+            "sessions_list": sessions_list,
+            "pending_count": pending_count,
+            "cheat_enabled": cheat_enabled,
+            "cheat_prompt": cheat_prompt,
             "turns": turns,
         },
     )
@@ -75,12 +95,12 @@ def game_turn(
     state_block: str = Form(""),
 ) -> HTMLResponse:
     paths = ensure_app_dirs()
-    llm_cfg = load_llm_config(paths.config_path)
+    llm_cfg = load_active_llm_config()
     if llm_cfg is None:
         return templates.TemplateResponse(
             request=request,
             name="partials/test_result.html",
-            context={"ok": False, "message": "LLM 未配置，请先在 /setup 配置。"},
+            context={"ok": False, "message": "LLM 未配置，请先在 /models 配置。"},
         )
 
     save_app_state(paths.config_path, AppState(active_campaign_id=campaign_id, active_session_id=session_id))
@@ -88,14 +108,18 @@ def game_turn(
     conn = get_connection(paths.db_path)
     try:
         srow = sessions.get_session_sidebar(conn, session_id)
+        cheat_cfg = session_cheats.get_cheat(conn, session_id=session_id) or {}
         session_title = srow["title"] if srow else ""
         current_scene = srow["current_scene"] if srow else ""
         session_state = srow["session_state"] if srow and "session_state" in srow.keys() else ""
         pinned_world_notes = srow["pinned_world_notes"] if srow and "pinned_world_notes" in srow.keys() else ""
+        cheat_enabled = bool(int(cheat_cfg.get("enabled") or 0))
+        cheat_prompt = (cheat_cfg.get("cheat_prompt") or "").strip()
     finally:
         conn.close()
 
     state_parts = []
+    dice_events = roll_events_from_text(player_text, max_rolls=5)
     if current_scene:
         state_parts.append(f"当前场景：{current_scene}")
     if session_title:
@@ -104,6 +128,10 @@ def game_turn(
         state_parts.append("【置顶世界设定】\n" + pinned_world_notes)
     if session_state:
         state_parts.append("【主角/队伍状态】\n" + session_state)
+    if cheat_enabled and cheat_prompt:
+        state_parts.append("【CheatDirective（仅在本会话生效）】\n" + cheat_prompt)
+    if dice_events:
+        state_parts.append("【系统掷骰结果】\n" + format_events_for_prompt(dice_events))
     if (state_block or "").strip():
         state_parts.append("【本回合额外上下文】\n" + (state_block or "").strip())
     merged_state_block = "\n\n".join(state_parts).strip()
@@ -131,6 +159,7 @@ def game_turn(
 
             client = create_llm_client(llm_cfg)
             dm_raw = client.chat(messages)
+            dm_raw, repaired = ensure_dm_protocol_output(client, messages, dm_raw, max_retries=1)
             t_llm = time.perf_counter()
             dm_struct = parse_dm_text(dm_raw)
             t_parse = time.perf_counter()
@@ -142,16 +171,18 @@ def game_turn(
                 dm_raw=dm_raw,
                 dm_struct=dm_struct,
                 recalled_world=recalled_world,
+                dice_events=dice_events,
             )
             conn.commit()
             t_persist = time.perf_counter()
 
             logger.info(
-                "turn_done web_non_stream session=%s turn=%s prompt_chars=%s msg_count=%s prompt_ms=%s llm_ms=%s parse_ms=%s persist_ms=%s total_ms=%s",
+                "turn_done web_non_stream session=%s turn=%s prompt_chars=%s msg_count=%s repaired=%s prompt_ms=%s llm_ms=%s parse_ms=%s persist_ms=%s total_ms=%s",
                 session_id,
                 result.turn_index,
                 prompt_chars,
                 msg_count,
+                1 if repaired else 0,
                 int((t_prompt - t0) * 1000),
                 int((t_llm - t_prompt) * 1000),
                 int((t_parse - t_llm) * 1000),
@@ -169,6 +200,7 @@ def game_turn(
                     "turn_index": result.turn_index,
                     "player_text": player_text,
                     "dm": result.dm,
+                    "dice_events": result.dice_events,
                 },
                 "recalled_world": result.recalled_world,
             },
@@ -199,10 +231,10 @@ def game_turn_stream(
     from starlette.responses import StreamingResponse
 
     paths = ensure_app_dirs()
-    llm_cfg = load_llm_config(paths.config_path)
+    llm_cfg = load_active_llm_config()
     if llm_cfg is None:
         return StreamingResponse(
-            iter([('event: error\ndata: {"message":"LLM 未配置，请先在 /setup 配置。"}\n\n').encode("utf-8")]),
+            iter([('event: error\ndata: {"message":"LLM 未配置，请先在 /models 配置。"}\n\n').encode("utf-8")]),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache"},
         )
@@ -213,14 +245,18 @@ def game_turn_stream(
     conn0 = get_connection(paths.db_path)
     try:
         srow = sessions.get_session_sidebar(conn0, session_id)
+        cheat_cfg = session_cheats.get_cheat(conn0, session_id=session_id) or {}
         session_title = srow["title"] if srow else ""
         current_scene = srow["current_scene"] if srow else ""
         session_state = srow["session_state"] if srow and "session_state" in srow.keys() else ""
         pinned_world_notes = srow["pinned_world_notes"] if srow and "pinned_world_notes" in srow.keys() else ""
+        cheat_enabled = bool(int(cheat_cfg.get("enabled") or 0))
+        cheat_prompt = (cheat_cfg.get("cheat_prompt") or "").strip()
     finally:
         conn0.close()
 
     state_parts = []
+    dice_events = roll_events_from_text(player_text, max_rolls=5)
     if current_scene:
         state_parts.append(f"当前场景：{current_scene}")
     if session_title:
@@ -229,6 +265,10 @@ def game_turn_stream(
         state_parts.append("【置顶世界设定】\n" + pinned_world_notes)
     if session_state:
         state_parts.append("【主角/队伍状态】\n" + session_state)
+    if cheat_enabled and cheat_prompt:
+        state_parts.append("【CheatDirective（仅在本会话生效）】\n" + cheat_prompt)
+    if dice_events:
+        state_parts.append("【系统掷骰结果】\n" + format_events_for_prompt(dice_events))
     if (state_block or "").strip():
         state_parts.append("【本回合额外上下文】\n" + (state_block or "").strip())
     merged_state_block = "\n\n".join(state_parts).strip()
@@ -268,6 +308,10 @@ def game_turn_stream(
                     yield _sse("delta", {"text": delta})
 
                 dm_raw = "".join(dm_parts)
+                # IMPORTANT(stream): Do NOT trigger a second non-streaming LLM call to "repair protocol".
+                # Many providers never close the stream; adding another blocking call here makes the client
+                # perceive the SSE as "stuck" (no final event). We keep best-effort parsing downstream.
+                dm_raw, repaired = ensure_dm_protocol_output(client, messages, dm_raw, max_retries=0)
                 t_llm = time.perf_counter()
                 dm_struct = parse_dm_text(dm_raw)
                 t_parse = time.perf_counter()
@@ -279,16 +323,18 @@ def game_turn_stream(
                     dm_raw=dm_raw,
                     dm_struct=dm_struct,
                     recalled_world=recalled_world,
+                    dice_events=dice_events,
                 )
                 conn.commit()
                 t_persist = time.perf_counter()
 
                 logger.info(
-                    "turn_done web_stream session=%s turn=%s prompt_chars=%s msg_count=%s first_token_ms=%s prompt_ms=%s llm_ms=%s parse_ms=%s persist_ms=%s total_ms=%s",
+                    "turn_done web_stream session=%s turn=%s prompt_chars=%s msg_count=%s repaired=%s first_token_ms=%s prompt_ms=%s llm_ms=%s parse_ms=%s persist_ms=%s total_ms=%s",
                     session_id,
                     result.turn_index,
                     prompt_chars,
                     msg_count,
+                    1 if repaired else 0,
                     first_token_ms if first_token_ms is not None else -1,
                     int((t_prompt - t0) * 1000),
                     int((t_llm - t_prompt) * 1000),
@@ -303,6 +349,7 @@ def game_turn_stream(
                         "turn": {
                             "turn_index": result.turn_index,
                             "player_text": player_text,
+                            "dice_events": result.dice_events,
                             "dm": {
                                 "narration": result.dm.narration,
                                 "choices": result.dm.choices,
@@ -323,7 +370,42 @@ def game_turn_stream(
         except Exception as e:
             yield _sse("error", {"message": f"stream failed: {e}"})
 
-    return StreamingResponse(_gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Avoid buffering by reverse proxies / servers (best-effort; harmless locally).
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/game/roll", response_class=HTMLResponse)
+def game_roll(
+    request: Request,
+    roll_expr_text: str = Form(""),
+) -> HTMLResponse:
+    expr = (roll_expr_text or "").strip()
+    if not expr:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/test_result.html",
+            context={"ok": False, "message": "请输入掷骰表达式（例如 d20 / 1d20+5 / 2d6-1）"},
+        )
+    try:
+        event = roll_expr(expr)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/test_result.html",
+            context={"ok": False, "message": str(e)},
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/roll_result.html",
+        context={"event": event},
+    )
 
 
 @router.post("/game/session/update", response_class=HTMLResponse)

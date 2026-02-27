@@ -1,0 +1,13 @@
+<div class="notice">
+  <div style="font-weight: 700;">掷骰结果</div>
+  <div class="muted" style="margin-top: 6px;">
+    {{ event.expr }} =&gt; [{{ event.rolls | join(', ') }}]
+    {% if event.modifier %}
+      {{ "%+d"|format(event.modifier) }}
+    {% else %}
+      +0
+    {% endif %}
+    = <strong>{{ event.total }}</strong>
+  </div>
+</div>
+

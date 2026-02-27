@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}新冒险向导 - one_person_dnd{% endblock %}
+
+{% block content %}
+  <h1>新冒险向导</h1>
+  <div class="muted">一键生成世界观（WorldBible）+ 角色卡（JSON），预览后再决定是否采用。</div>
+
+  {% if not llm_ready %}
+    <div class="notice notice--err" style="margin-top:12px;">
+      <div style="font-weight:700;">LLM 未配置</div>
+      <div class="muted">请先在 <a href="/models">模型</a> 页面选择或创建一个可用的模型配置。</div>
+    </div>
+  {% endif %}
+
+  {% if error %}
+    <div class="notice notice--err" style="margin-top:12px;">
+      <div style="font-weight:700;">生成失败</div>
+      <div class="muted">{{ error }}</div>
+    </div>
+  {% endif %}
+
+  <section class="card" style="margin-top: 12px;">
+    <div class="card__title">生成参数</div>
+    <form class="form" method="post" action="/new/generate">
+      <div class="row">
+        <label class="label" style="flex: 1;">
+          风格
+          <input class="input" name="genre" value="奇幻" />
+        </label>
+        <label class="label" style="flex: 1;">
+          基调
+          <input class="input" name="tone" value="冒险" />
+        </label>
+        <label class="label" style="flex: 1;">
+          科技水平
+          <input class="input" name="tech_level" value="中世纪" />
+        </label>
+      </div>
+      <label class="label">
+        主题（逗号分隔）
+        <input class="input" name="themes" value="探索,谜团" />
+      </label>
+      <label class="label">
+        角色数量（1-4）
+        <input class="input" type="number" name="character_count" value="1" min="1" max="4" />
+      </label>
+      <label class="label">
+        额外约束（可选）
+        <textarea class="input textarea" name="extra_constraints" placeholder="例如：世界里禁止复活法术；主角必须是半精灵游侠；开局在雪国小镇..."></textarea>
+      </label>
+      <button class="btn" type="submit" {% if not llm_ready %}disabled{% endif %}>一键生成</button>
+    </form>
+  </section>
+{% endblock %}
+

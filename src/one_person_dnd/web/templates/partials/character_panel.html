@@ -1,4 +1,37 @@
 <div class="card" style="margin-top: 12px;">
+  <div class="card__title">快捷改值</div>
+  <div class="muted">
+    当前角色（party[0]）：HP = {{ quick_stats.hp if quick_stats.hp is not none else "未知" }}，
+    金币 = {{ quick_stats.gold if quick_stats.gold is not none else "未知" }}
+  </div>
+  <form
+    class="form"
+    hx-post="/character/quick_adjust"
+    hx-target="#character-panel"
+    hx-swap="innerHTML"
+    hx-push-url="false"
+  >
+    <div class="row">
+      <label class="label" style="margin-top: 0;">
+        HP 增量
+        <input class="input input--compact" type="number" name="hp_delta" value="0" />
+      </label>
+      <label class="label" style="margin-top: 0;">
+        金币增量
+        <input class="input input--compact" type="number" name="gold_delta" value="0" />
+      </label>
+    </div>
+    <label class="label">
+      原因（可选）
+      <input class="input" name="reason" placeholder="例如：剧情奖励 / 惩罚 / 测试分支" />
+    </label>
+    <div class="row">
+      <button class="btn" type="submit">应用改值</button>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="margin-top: 12px;">
   <div class="card__title">角色卡（JSON）</div>
   {% if notice_message %}
     <div class="notice" style="margin-top: 10px;">{{ notice_message }}</div>

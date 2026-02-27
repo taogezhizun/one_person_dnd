@@ -27,6 +27,50 @@
       <input class="input" name="timeout_seconds" type="number" step="0.1" min="1" value="{{ existing.timeout_seconds if existing else 60.0 }}" />
     </label>
 
+    <details class="advanced" open>
+      <summary>采样参数（可选）</summary>
+      <label class="label">
+        Temperature（可选）
+        <input
+          class="input"
+          name="temperature"
+          type="number"
+          step="0.01"
+          min="0"
+          max="2"
+          value="{{ existing.temperature if existing and existing.temperature is not none else '' }}"
+          placeholder="例如：0.7"
+        />
+      </label>
+
+      <label class="label">
+        Top P（可选）
+        <input
+          class="input"
+          name="top_p"
+          type="number"
+          step="0.01"
+          min="0"
+          max="1"
+          value="{{ existing.top_p if existing and existing.top_p is not none else '' }}"
+          placeholder="例如：0.9"
+        />
+      </label>
+
+      <label class="label">
+        Max Tokens（可选）
+        <input
+          class="input"
+          name="max_tokens"
+          type="number"
+          step="1"
+          min="1"
+          value="{{ existing.max_tokens if existing and existing.max_tokens is not none else '' }}"
+          placeholder="例如：800"
+        />
+      </label>
+    </details>
+
     <div class="row">
       <button class="btn" type="submit">保存</button>
       <button

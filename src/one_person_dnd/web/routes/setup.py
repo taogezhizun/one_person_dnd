@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from one_person_dnd.config import LLMConfig, load_llm_config, save_llm_config
 from one_person_dnd.llm import ChatMessage, LLMClientError, create_llm_client
 from one_person_dnd.paths import ensure_app_dirs
+from one_person_dnd.web.routes.common import ensure_default_llm_profile_from_ini
 from one_person_dnd.web.routes.common import templates
 
 router = APIRouter()
@@ -14,6 +15,7 @@ router = APIRouter()
 @router.get("/setup", response_class=HTMLResponse)
 def setup_get(request: Request) -> HTMLResponse:
     paths = ensure_app_dirs()
+    ensure_default_llm_profile_from_ini()
     llm_cfg = load_llm_config(paths.config_path)
     return templates.TemplateResponse(
         request=request,
@@ -30,7 +32,28 @@ def setup_post(
     api_key: str = Form(""),
     model: str = Form(...),
     timeout_seconds: float = Form(60.0),
+    temperature: str = Form(""),
+    top_p: str = Form(""),
+    max_tokens: str = Form(""),
 ) -> RedirectResponse:
+    def _opt_float(s: str) -> float | None:
+        raw = (s or "").strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except Exception:
+            return None
+
+    def _opt_int(s: str) -> int | None:
+        raw = (s or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except Exception:
+            return None
+
     paths = ensure_app_dirs()
     save_llm_config(
         paths.config_path,
@@ -39,6 +62,9 @@ def setup_post(
             api_key=api_key.strip(),
             model=model.strip(),
             timeout_seconds=timeout_seconds,
+            temperature=_opt_float(temperature),
+            top_p=_opt_float(top_p),
+            max_tokens=_opt_int(max_tokens),
         ),
     )
     return RedirectResponse(url="/", status_code=303)
@@ -51,12 +77,36 @@ def setup_test(
     api_key: str = Form(""),
     model: str = Form(...),
     timeout_seconds: float = Form(60.0),
+    temperature: str = Form(""),
+    top_p: str = Form(""),
+    max_tokens: str = Form(""),
 ) -> HTMLResponse:
+    def _opt_float(s: str) -> float | None:
+        raw = (s or "").strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except Exception:
+            return None
+
+    def _opt_int(s: str) -> int | None:
+        raw = (s or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except Exception:
+            return None
+
     cfg = LLMConfig(
         base_url=base_url.strip(),
         api_key=api_key.strip(),
         model=model.strip(),
         timeout_seconds=timeout_seconds,
+        temperature=_opt_float(temperature),
+        top_p=_opt_float(top_p),
+        max_tokens=_opt_int(max_tokens),
     )
     try:
         client = create_llm_client(cfg)

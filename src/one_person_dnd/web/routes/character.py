@@ -7,12 +7,37 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
 from one_person_dnd.db import get_connection
-from one_person_dnd.db.repos import character_sheets, state_change_requests
+from one_person_dnd.db.repos import character_sheets, manual_change_logs, state_change_requests
 from one_person_dnd.engine.guardrails import GuardrailError, validate_state_delta_json
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import get_current_campaign_session, templates
 
 router = APIRouter()
+
+
+def _to_int(v: Any) -> int | None:
+    try:
+        if v is None:
+            return None
+        return int(v)
+    except Exception:
+        return None
+
+
+def _extract_quick_stats(sheet_text: str) -> dict[str, int | None]:
+    hp: int | None = None
+    gold: int | None = None
+    try:
+        obj = json.loads(sheet_text or "{}")
+    except Exception:
+        obj = {}
+    if isinstance(obj, dict):
+        party = obj.get("party")
+        if isinstance(party, list) and party and isinstance(party[0], dict):
+            hp = _to_int(party[0].get("hp"))
+            gold = _to_int(party[0].get("gold"))
+    return {"hp": hp, "gold": gold}
+
 
 def _render_panel(request: Request, *, session_id: int, notice_message: str = "") -> HTMLResponse:
     paths = ensure_app_dirs()
@@ -20,6 +45,7 @@ def _render_panel(request: Request, *, session_id: int, notice_message: str = ""
     try:
         sheet = character_sheets.get_character_sheet(conn, session_id=session_id)
         pending = state_change_requests.list_pending(conn, session_id=session_id, limit=50)
+        quick_stats = _extract_quick_stats(sheet)
     finally:
         conn.close()
 
@@ -29,6 +55,7 @@ def _render_panel(request: Request, *, session_id: int, notice_message: str = ""
         context={
             "session_id": session_id,
             "character_sheet": sheet,
+            "quick_stats": quick_stats,
             "pending_changes": pending,
             "notice_message": notice_message,
         },
@@ -50,7 +77,18 @@ def character_save(
     _campaign_id, session_id = get_current_campaign_session()
     conn = get_connection(paths.db_path)
     try:
-        character_sheets.upsert_character_sheet(conn, session_id=session_id, json_text=(character_sheet or "").strip())
+        saved_text = (character_sheet or "").strip()
+        character_sheets.upsert_character_sheet(conn, session_id=session_id, json_text=saved_text)
+        manual_change_logs.insert_log(
+            conn,
+            session_id=session_id,
+            actor="player",
+            change_type="character_sheet_save",
+            detail_json_text=json.dumps(
+                {"length": len(saved_text)},
+                ensure_ascii=False,
+            ),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -115,8 +153,19 @@ def change_apply(request: Request, request_id: int = Form(...)) -> HTMLResponse:
                 base_obj = {}
 
         merged = _deep_merge(base_obj, delta)
-        character_sheets.upsert_character_sheet(conn, session_id=session_id, json_text=json.dumps(merged, ensure_ascii=False, indent=2))
+        merged_text = json.dumps(merged, ensure_ascii=False, indent=2)
+        character_sheets.upsert_character_sheet(conn, session_id=session_id, json_text=merged_text)
         state_change_requests.set_status(conn, request_id=int(request_id), session_id=session_id, status="applied")
+        manual_change_logs.insert_log(
+            conn,
+            session_id=session_id,
+            actor="player",
+            change_type="apply_state_delta",
+            detail_json_text=json.dumps(
+                {"request_id": int(request_id), "delta": delta},
+                ensure_ascii=False,
+            ),
+        )
         conn.commit()
     finally:
         conn.close()
@@ -135,4 +184,62 @@ def change_reject(request: Request, request_id: int = Form(...)) -> HTMLResponse
     finally:
         conn.close()
     return _render_panel(request, session_id=session_id, notice_message="已拒绝变更。")
+
+
+@router.post("/character/quick_adjust", response_class=HTMLResponse)
+def character_quick_adjust(
+    request: Request,
+    hp_delta: int = Form(0),
+    gold_delta: int = Form(0),
+    reason: str = Form(""),
+) -> HTMLResponse:
+    paths = ensure_app_dirs()
+    _campaign_id, session_id = get_current_campaign_session()
+    conn = get_connection(paths.db_path)
+    try:
+        raw = character_sheets.get_character_sheet(conn, session_id=session_id).strip()
+        try:
+            obj = json.loads(raw) if raw else {}
+        except Exception:
+            obj = {}
+        if not isinstance(obj, dict):
+            obj = {}
+
+        party = obj.get("party")
+        if not isinstance(party, list):
+            party = []
+            obj["party"] = party
+        if not party or not isinstance(party[0], dict):
+            party.insert(0, {})
+
+        member = party[0]
+        current_hp = _to_int(member.get("hp")) or 0
+        current_gold = _to_int(member.get("gold")) or 0
+        new_hp = current_hp + int(hp_delta or 0)
+        new_gold = current_gold + int(gold_delta or 0)
+        member["hp"] = new_hp
+        member["gold"] = new_gold
+
+        updated = json.dumps(obj, ensure_ascii=False, indent=2)
+        character_sheets.upsert_character_sheet(conn, session_id=session_id, json_text=updated)
+        manual_change_logs.insert_log(
+            conn,
+            session_id=session_id,
+            actor="player",
+            change_type="quick_adjust",
+            detail_json_text=json.dumps(
+                {
+                    "hp_delta": int(hp_delta or 0),
+                    "gold_delta": int(gold_delta or 0),
+                    "from": {"hp": current_hp, "gold": current_gold},
+                    "to": {"hp": new_hp, "gold": new_gold},
+                    "reason": (reason or "").strip(),
+                },
+                ensure_ascii=False,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return _render_panel(request, session_id=session_id, notice_message="已应用快速改值。")
 
