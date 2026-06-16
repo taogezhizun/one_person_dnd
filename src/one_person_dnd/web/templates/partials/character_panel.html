@@ -1,41 +1,110 @@
-<div class="card" style="margin-top: 12px;">
-  <div class="card__title">快捷改值</div>
-  <div class="muted">
-    当前角色（party[0]）：HP = {{ quick_stats.hp if quick_stats.hp is not none else "未知" }}，
-    金币 = {{ quick_stats.gold if quick_stats.gold is not none else "未知" }}
-  </div>
-  <form
-    class="form"
-    hx-post="/character/quick_adjust"
-    hx-target="#character-panel"
-    hx-swap="innerHTML"
-    hx-push-url="false"
-  >
-    <div class="row">
-      <label class="label" style="margin-top: 0;">
-        HP 增量
-        <input class="input input--compact" type="number" name="hp_delta" value="0" />
-      </label>
-      <label class="label" style="margin-top: 0;">
-        金币增量
-        <input class="input input--compact" type="number" name="gold_delta" value="0" />
-      </label>
-    </div>
-    <label class="label">
-      原因（可选）
-      <input class="input" name="reason" placeholder="例如：剧情奖励 / 惩罚 / 测试分支" />
-    </label>
-    <div class="row">
-      <button class="btn" type="submit">应用改值</button>
-    </div>
-  </form>
-</div>
+<div data-character-pending-count="{{ pending_count or 0 }}" hidden></div>
 
-<div class="card" style="margin-top: 12px;">
-  <div class="card__title">角色卡（JSON）</div>
-  {% if notice_message %}
-    <div class="notice" style="margin-top: 10px;">{{ notice_message }}</div>
+{% if notice_message %}
+  <div class="notice panel-notice" role="status" aria-live="polite">{{ notice_message }}</div>
+{% endif %}
+
+<section class="sheet-panel">
+  <div class="panel-section__title">角色概览</div>
+  {% if character_summary and character_summary.has_content %}
+    <div class="sheet-summary">
+      <div class="sheet-summary__name">{{ character_summary.name or "未命名角色" }}</div>
+      <div class="muted">
+        {% if character_summary.race or character_summary.role %}
+          {{ character_summary.race }}{% if character_summary.race and character_summary.role %} / {% endif %}{{ character_summary.role }}
+        {% else %}
+          身份未设置
+        {% endif %}
+      </div>
+      <div class="stat-pills" style="margin-top: 10px;">
+        <span class="stat-pill">HP {{ character_summary.hp if character_summary.hp is not none else "?" }}{% if character_summary.max_hp is not none %}/{{ character_summary.max_hp }}{% endif %}</span>
+        <span class="stat-pill">金币 {{ character_summary.gold if character_summary.gold is not none else "?" }}</span>
+      </div>
+      {% if character_summary.goal %}
+        <div class="muted" style="margin-top: 10px;">目标：{{ character_summary.goal }}</div>
+      {% endif %}
+      {% if character_summary.inventory %}
+        <div class="muted" style="margin-top: 10px;">物品：{{ character_summary.inventory | join("、") }}</div>
+      {% endif %}
+      {% if character_summary.conditions %}
+        <div class="muted" style="margin-top: 10px;">状态：{{ character_summary.conditions | join("、") }}</div>
+      {% endif %}
+      {% if character_summary.abilities %}
+        <div class="muted" style="margin-top: 10px;">
+          属性：{% for key, value in character_summary.abilities.items() %}{{ key }} {{ value }}{% if not loop.last %}，{% endif %}{% endfor %}
+        </div>
+      {% endif %}
+      {% if character_summary.notes %}
+        <div class="muted" style="margin-top: 10px;">备注：{{ character_summary.notes }}</div>
+      {% endif %}
+    </div>
+  {% else %}
+    <div class="muted">（暂无角色卡。可以用新冒险向导生成，或在高级 JSON 中粘贴一份角色卡。）</div>
   {% endif %}
+
+  <div class="panel-card">
+    <div class="panel-section__title">快捷改值</div>
+    <div class="muted">
+      HP = {{ quick_stats.hp if quick_stats.hp is not none else "未知" }}，
+      金币 = {{ quick_stats.gold if quick_stats.gold is not none else "未知" }}
+    </div>
+    <form
+      class="form"
+      hx-post="/character/quick_adjust"
+      hx-target="#character-panel"
+      hx-swap="innerHTML"
+      hx-push-url="false"
+      hx-indicator="#quick-adjust-saving"
+    >
+      <div class="row">
+        <label class="label" style="margin-top: 0;">
+          HP 增量
+          <input class="input input--compact" type="number" name="hp_delta" value="0" />
+        </label>
+        <label class="label" style="margin-top: 0;">
+          金币增量
+          <input class="input input--compact" type="number" name="gold_delta" value="0" />
+        </label>
+      </div>
+      <label class="label">
+        原因（可选）
+        <input class="input" name="reason" placeholder="例如：剧情奖励 / 惩罚 / 测试分支" />
+      </label>
+      <div class="row">
+        <button class="btn" type="submit">应用改值</button>
+        <span id="quick-adjust-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">应用中…</span>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel-card">
+    <div class="panel-section__title">状态备注</div>
+    <form
+      class="form"
+      hx-post="/character/quick_state"
+      hx-target="#character-panel"
+      hx-swap="innerHTML"
+      hx-push-url="false"
+      hx-indicator="#quick-state-saving"
+    >
+      <label class="label" style="margin-top: 0;">
+        当前状态（逗号或换行分隔）
+        <textarea class="input textarea" name="conditions_text" placeholder="例如：中毒、隐匿、疲惫">{{ character_summary.conditions | join("\n") if character_summary and character_summary.conditions else "" }}</textarea>
+      </label>
+      <label class="label">
+        角色备注
+        <textarea class="input textarea" name="notes_text" placeholder="例如：害怕深水；欠酒馆老板娘一个人情。">{{ character_summary.notes if character_summary else "" }}</textarea>
+      </label>
+      <div class="row">
+        <button class="btn btn--ghost" type="submit">保存状态备注</button>
+        <span id="quick-state-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">保存中…</span>
+      </div>
+    </form>
+  </div>
+</section>
+
+<details class="advanced" style="margin-top: 12px;">
+  <summary>角色卡 JSON（高级）</summary>
   <form
     class="form"
     hx-post="/character/save"
@@ -49,41 +118,62 @@
     </label>
     <div class="row">
       <button class="btn" type="submit">保存角色卡</button>
-      <span id="character-saving" class="htmx-indicator spinner">保存中…</span>
+      <span id="character-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">保存中…</span>
     </div>
-    <div id="character-save-result"></div>
+    <div id="character-save-result" role="status" aria-live="polite"></div>
   </form>
-</div>
+</details>
 
-<div class="card" style="margin-top: 12px;">
-  <div class="card__title">待确认变更</div>
+<section class="sheet-panel">
+  <div class="panel-section__title">待确认变更</div>
   {% if pending_changes and pending_changes|length > 0 %}
     {% for c in pending_changes %}
-      <div class="card" style="margin-top: 10px;">
+      <div class="change-request">
         <div class="kv">
           <div class="kv__k">ID</div><div class="kv__v">{{ c.id }}</div>
           <div class="kv__k">类型</div><div class="kv__v">{{ c.kind }}</div>
           <div class="kv__k">回合</div><div class="kv__v">{{ c.turn_index }}</div>
         </div>
-        <pre class="muted" style="white-space: pre-wrap; margin-top: 8px;">{{ c.delta_json_text }}</pre>
+        <div class="change-preview {% if c.preview and not c.preview.ok %}change-preview--error{% endif %}">
+          <div class="change-preview__title">
+            变更预览{% if c.preview %}：{{ c.preview.summary }}{% endif %}
+          </div>
+          {% if c.preview and c.preview.lines %}
+            <ul class="change-preview__list">
+              {% for line in c.preview.lines %}
+                <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="muted">（暂无可读预览，请查看原始 JSON）</div>
+          {% endif %}
+        </div>
+        <details class="advanced">
+          <summary>原始 JSON</summary>
+          <pre class="muted" style="white-space: pre-wrap; margin-top: 8px;">{{ c.delta_json_text }}</pre>
+        </details>
         <div class="row" style="margin-top: 8px;">
           <form
             hx-post="/character/change/apply"
             hx-target="#character-panel"
             hx-swap="innerHTML"
             hx-push-url="false"
+            hx-indicator="#change-apply-saving-{{ c.id }}"
           >
             <input type="hidden" name="request_id" value="{{ c.id }}" />
             <button class="btn" type="submit">应用</button>
+            <span id="change-apply-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">应用中…</span>
           </form>
           <form
             hx-post="/character/change/reject"
             hx-target="#character-panel"
             hx-swap="innerHTML"
             hx-push-url="false"
+            hx-indicator="#change-reject-saving-{{ c.id }}"
           >
             <input type="hidden" name="request_id" value="{{ c.id }}" />
             <button class="btn btn--ghost" type="submit">拒绝</button>
+            <span id="change-reject-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">拒绝中…</span>
           </form>
         </div>
       </div>
@@ -91,5 +181,4 @@
   {% else %}
     <div class="muted">（暂无待确认变更）</div>
   {% endif %}
-</div>
-
+</section>

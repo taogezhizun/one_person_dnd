@@ -3,14 +3,35 @@
 {% block title %}预览 - 新冒险向导{% endblock %}
 
 {% block content %}
+  {% set world_entries = preview_obj.world_bible_entries or [] %}
+  {% set character_sheet = preview_obj.character_sheet or {} %}
+  {% set party = character_sheet.get("party") or [] %}
   <h1>预览生成结果</h1>
   <div class="muted">确认后将写入：WorldBible（当前战役）+ 角色卡（当前会话）。</div>
 
+  <section class="card new-preview-summary">
+    <div class="card__title">采用前确认</div>
+    <div class="new-preview-summary__grid">
+      <div class="status-tile">
+        <div class="status-tile__label">WorldBible 条目</div>
+        <div class="status-tile__value">{{ world_entries|length }}</div>
+      </div>
+      <div class="status-tile">
+        <div class="status-tile__label">角色数量</div>
+        <div class="status-tile__value">{{ party|length }}</div>
+      </div>
+      <div class="status-tile">
+        <div class="status-tile__label">采用后进入游戏</div>
+        <div class="status-tile__value">写入当前冒险</div>
+      </div>
+    </div>
+  </section>
+
   <section class="card" style="margin-top: 12px;">
     <div class="card__title">WorldBible 条目（将新增）</div>
-    {% if preview_obj.world_bible_entries and preview_obj.world_bible_entries|length > 0 %}
+    {% if world_entries and world_entries|length > 0 %}
       <ol>
-        {% for e in preview_obj.world_bible_entries %}
+        {% for e in world_entries %}
           <li style="margin-top: 8px;">
             <span class="muted">[{{ e.type }}]</span>
             <span style="font-weight:700;">{{ e.title }}</span>
@@ -26,7 +47,7 @@
 
   <section class="card" style="margin-top: 12px;">
     <div class="card__title">角色卡（将覆盖写入当前会话的 character_sheet）</div>
-    <pre class="pre">{{ preview_obj.character_sheet | tojson(indent=2, ensure_ascii=false) }}</pre>
+    <pre class="pre">{{ character_sheet_json }}</pre>
   </section>
 
   <section class="card" style="margin-top: 12px;">
@@ -37,9 +58,8 @@
         <button class="btn" type="submit">采用并进入游戏</button>
       </form>
       <form method="get" action="/new">
-        <button class="btn btn--ghost" type="submit">放弃</button>
+        <button class="btn btn--ghost" type="submit">返回修改</button>
       </form>
     </div>
   </section>
 {% endblock %}
-

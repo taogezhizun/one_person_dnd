@@ -100,6 +100,7 @@ def new_generate(
             "extra_constraints": extra_constraints,
             "preview_obj": obj,
             "preview_json": preview_json,
+            "character_sheet_json": json.dumps(sheet, ensure_ascii=False, indent=2),
         },
     )
 
@@ -140,4 +141,3 @@ def new_apply(preview_json: str = Form(...)) -> RedirectResponse:
         conn.close()
 
     return RedirectResponse(url="/game", status_code=303)
-

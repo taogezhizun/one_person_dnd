@@ -10,6 +10,9 @@
     <div class="notice notice--err" style="margin-top:12px;">
       <div style="font-weight:700;">LLM 未配置</div>
       <div class="muted">请先在 <a href="/models">模型</a> 页面选择或创建一个可用的模型配置。</div>
+      <div class="new-adventure__notice-actions">
+        <a class="btn btn--ghost" href="/models">去配置模型</a>
+      </div>
     </div>
   {% endif %}
 
@@ -22,7 +25,7 @@
 
   <section class="card" style="margin-top: 12px;">
     <div class="card__title">生成参数</div>
-    <form class="form" method="post" action="/new/generate">
+    <form class="form" method="post" action="/new/generate" data-long-submit>
       <div class="row">
         <label class="label" style="flex: 1;">
           风格
@@ -49,8 +52,16 @@
         额外约束（可选）
         <textarea class="input textarea" name="extra_constraints" placeholder="例如：世界里禁止复活法术；主角必须是半精灵游侠；开局在雪国小镇..."></textarea>
       </label>
-      <button class="btn" type="submit" {% if not llm_ready %}disabled{% endif %}>一键生成</button>
+      <div class="row">
+        <button
+          class="btn"
+          type="submit"
+          data-long-submit-button
+          data-long-submit-label="生成中…"
+          {% if not llm_ready %}disabled{% endif %}
+        >一键生成</button>
+        <span class="form-status spinner" data-long-submit-status hidden>正在生成冒险…</span>
+      </div>
     </form>
   </section>
 {% endblock %}
-

@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from one_person_dnd.config import AppState, load_llm_config, save_app_state
+from one_person_dnd.config import AppState, save_app_state
 from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import (
     campaigns,
@@ -15,7 +15,7 @@ from one_person_dnd.db.repos import (
     sessions,
 )
 from one_person_dnd.paths import ensure_app_dirs
-from one_person_dnd.web.routes.common import get_current_campaign_session, templates
+from one_person_dnd.web.routes.common import get_current_campaign_session, load_active_llm_config, templates
 
 router = APIRouter()
 
@@ -23,7 +23,7 @@ router = APIRouter()
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     paths = ensure_app_dirs()
-    llm_cfg = load_llm_config(paths.config_path)
+    llm_cfg = load_active_llm_config()
     campaign_id, session_id = get_current_campaign_session()
 
     conn = get_connection(paths.db_path)
@@ -324,4 +324,3 @@ def saves_session_enter(session_id: int = Form(...)) -> RedirectResponse:
 
     save_app_state(paths.config_path, AppState(active_campaign_id=campaign_id, active_session_id=session_id))
     return RedirectResponse(url="/game", status_code=303)
-

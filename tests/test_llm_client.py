@@ -1,7 +1,7 @@
 import unittest
 
 from one_person_dnd.config import LLMConfig
-from one_person_dnd.llm.client import OpenAICompatClient
+from one_person_dnd.llm.client import OpenAICompatClient, create_llm_client
 
 
 class TestOpenAICompatClient(unittest.TestCase):
@@ -28,3 +28,9 @@ class TestOpenAICompatClient(unittest.TestCase):
         headers = c._headers()
         self.assertEqual(headers["Authorization"], "Bearer k")
 
+    def test_deepseek_uses_openai_compatible_endpoint(self) -> None:
+        cfg = LLMConfig(provider="deepseek", base_url="", api_key="k", model="")
+        c = create_llm_client(cfg)
+        self.assertIsInstance(c, OpenAICompatClient)
+        self.assertEqual(c._endpoint(), "https://api.deepseek.com/v1/chat/completions")
+        self.assertEqual(c._headers()["Authorization"], "Bearer k")

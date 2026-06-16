@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from getpass import getpass
 from pathlib import Path
 
+from one_person_dnd.engine.constants import CONTEXT_CHARS_FOR_PROMPT, HISTORY_TURNS_FOR_PROMPT, STORY_JOURNAL_FOR_PROMPT
+
 
 @dataclass(frozen=True)
 class LLMConfig:
@@ -31,8 +33,9 @@ class MemoryConfig:
     Optional memory-related knobs. If missing from api_config.ini, defaults are used.
     """
 
-    history_turns_for_prompt: int = 6
-    story_journal_for_prompt: int = 12
+    history_turns_for_prompt: int = HISTORY_TURNS_FOR_PROMPT
+    story_journal_for_prompt: int = STORY_JOURNAL_FOR_PROMPT
+    context_chars_for_prompt: int = CONTEXT_CHARS_FOR_PROMPT
 
 
 @dataclass(frozen=True)
@@ -159,6 +162,7 @@ def load_memory_config(config_path: Path) -> MemoryConfig:
     return MemoryConfig(
         history_turns_for_prompt=_read_int("history_turns_for_prompt", defaults.history_turns_for_prompt),
         story_journal_for_prompt=_read_int("story_journal_for_prompt", defaults.story_journal_for_prompt),
+        context_chars_for_prompt=_read_int("context_chars_for_prompt", defaults.context_chars_for_prompt),
     )
 
 
@@ -256,4 +260,3 @@ def interactive_ensure_server_config(config_path: Path) -> ServerConfig:
     save_server_config(config_path, cfg)
     print("server 配置已保存。")
     return cfg
-

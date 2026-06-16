@@ -13,6 +13,16 @@ class DMStructuredResponse:
     thread_updates_json: str = ""
 
 
+def _normalize_choice_line(line: str) -> str:
+    s = (line or "").strip().lstrip("-").lstrip("*").strip()
+    if not s:
+        return ""
+    if len(s) >= 2 and s[0].isdigit():
+        s2 = s.lstrip("0123456789").lstrip(".").lstrip(")").lstrip("、").strip()
+        s = s2 or s
+    return s
+
+
 def parse_dm_text(text: str) -> DMStructuredResponse:
     """
     Best-effort parsing for the 4 required sections.
@@ -61,18 +71,7 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
 
         choices: list[str] = []
         for line in choices_block.splitlines():
-            s = line.strip()
-            if not s:
-                continue
-            # Accept "- xxx" or "1. xxx"
-            if s.startswith("-"):
-                s = s.lstrip("-").strip()
-            # remove leading numbering like "1." / "1)"
-            s2 = s
-            if len(s2) >= 2 and s2[0].isdigit():
-                # naive trim
-                s2 = s2.lstrip("0123456789").lstrip(".").lstrip(")").strip()
-            s = s2 or s
+            s = _normalize_choice_line(line)
             if s:
                 choices.append(s)
 
@@ -91,7 +90,7 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
 
     # Fallback: lightweight heuristics for legacy headings.
     lower = t.lower()
-    if "choices" not in lower and "选项" not in t and "dm_notes" not in lower and "备注" not in t:
+    if "choices" not in lower and "选项" not in t and "可选行动" not in t and "dm_notes" not in lower and "备注" not in t:
         return DMStructuredResponse(narration=t, choices=[], dm_notes="", memory_suggestions="")
 
     def _split_by_markers(src: str) -> dict[str, str]:
@@ -101,19 +100,32 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
             ("dm_notes", ["dm_notes", "dm notes", "dm备注", "备注"]),
             ("memory_suggestions", ["memory_suggestions", "memory suggestions", "建议写入", "剧情摘要要点"]),
         ]
-        # Find first occurrence of any marker line start.
+
+        def _line_marker_key(raw_line: str) -> str | None:
+            normalized = raw_line.strip().strip("#").strip("*").strip().strip(":：").lower()
+            if not normalized:
+                return None
+            for key, keys in markers:
+                for marker in keys:
+                    if normalized.startswith(marker.lower()):
+                        return key
+            return None
+
         positions: list[tuple[int, str]] = []
-        for key, keys in markers:
-            for k in keys:
-                idx = src.lower().find(k.lower())
-                if idx != -1:
-                    positions.append((idx, key))
-                    break
+        offset = 0
+        for raw_line in src.splitlines(keepends=True):
+            key = _line_marker_key(raw_line)
+            if key is not None:
+                positions.append((offset, key))
+            offset += len(raw_line)
         positions.sort(key=lambda x: x[0])
         if not positions:
             return {}
 
         chunks: dict[str, str] = {}
+        first_pos, first_key = positions[0]
+        if first_key != "narration" and first_pos > 0:
+            chunks["narration"] = src[:first_pos].strip()
         for i, (pos, key) in enumerate(positions):
             end = positions[i + 1][0] if i + 1 < len(positions) else len(src)
             chunks[key] = src[pos:end].strip()
@@ -129,7 +141,7 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
     # Extract list lines for choices.
     choices: list[str] = []
     for line in choices_block.splitlines():
-        s = line.strip().lstrip("-").lstrip("*").strip()
+        s = _normalize_choice_line(line)
         if not s:
             continue
         # Skip heading-ish lines
@@ -145,4 +157,3 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
         state_delta_json="",
         thread_updates_json="",
     )
-

@@ -3,25 +3,21 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from one_person_dnd.config import LLMConfig, MemoryConfig
 from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import (
-    plot_threads,
     sessions,
     state_change_requests,
     story_journal,
     summaries,
     turn_logs,
-    world_bible,
 )
-from one_person_dnd.engine.constants import HISTORY_TURNS_FOR_PROMPT, STORY_JOURNAL_FOR_PROMPT
-from one_person_dnd.engine.dice import DiceEvent, format_events_for_prompt, roll_events_from_text
-from one_person_dnd.engine.parser import DMStructuredResponse, parse_dm_text
-from one_person_dnd.engine.prompt_builder import RetrievedMemory, build_dm_messages
+from one_person_dnd.domain.actions import ActionAssessment
+from one_person_dnd.engine.dice import DiceEvent
+from one_person_dnd.engine.parser import DMStructuredResponse
 from one_person_dnd.llm import ChatMessage, create_llm_client
 
 logger = logging.getLogger("one_person_dnd.turn")
@@ -97,38 +93,10 @@ class TurnResult:
     dm: DMStructuredResponse
     recalled_world: list[dict]
     dice_events: list[DiceEvent]
-
-
-def _fetch_world_bible(
-    conn: sqlite3.Connection,
-    *,
-    campaign_id: int,
-    tags: list[str] | None,
-    limit: int = 10,
-) -> tuple[list[str], list[dict]]:
-    rows = world_bible.select_world_bible_for_prompt(conn, campaign_id=campaign_id, tags=tags, limit=limit)
-
-    blocks: list[str] = []
-    preview: list[dict] = []
-    for r in rows:
-        blocks.append(f"[{r['type']}] {r['title']}\n标签：{r['tags'] or ''}\n{r['content']}")
-        preview.append({"type": r["type"], "title": r["title"], "tags": r["tags"] or ""})
-    return blocks, preview
-
-
-def _fetch_story_journal(
-    conn: sqlite3.Connection,
-    *,
-    session_id: int,
-    limit: int = STORY_JOURNAL_FOR_PROMPT,
-) -> list[str]:
-    rows = story_journal.select_story_journal_for_prompt(conn, session_id=session_id, limit=limit)
-    blocks: list[str] = []
-    for r in rows[::-1]:
-        blocks.append(
-            f"场景：{r['scene_id'] or ''}\n摘要：{r['summary']}\n未解决：{r['open_threads'] or ''}\n要点：{r['key_facts'] or ''}"
-        )
-    return blocks
+    recalled_context: list[dict] = field(default_factory=list)
+    action_assessment: ActionAssessment | None = None
+    critic_warnings: list[str] = field(default_factory=list)
+    response_warnings: list[str] = field(default_factory=list)
 
 
 def _next_turn_index(conn: sqlite3.Connection, session_id: int) -> int:
@@ -139,90 +107,6 @@ def _get_session_scene_id(conn: sqlite3.Connection, session_id: int) -> str:
     return sessions.get_session_scene_id(conn, session_id)
 
 
-def _fetch_recent_turn_context(
-    conn: sqlite3.Connection,
-    *,
-    session_id: int,
-    limit: int,
-) -> list[ChatMessage]:
-    """
-    Fetch recent turns and convert them into ChatMessages for LLM context.
-    We include player_text as user messages, and DM narration/choices as assistant messages.
-    """
-    if limit <= 0:
-        return []
-    rows = turn_logs.list_recent_turn_pairs(conn, session_id=session_id, limit=limit)
-    if not rows:
-        return []
-
-    msgs: list[ChatMessage] = []
-    for r in rows[::-1]:
-        player_text = (r["player_text"] or "").strip()
-        dm_text = (r["dm_text"] or "").strip()
-        if player_text:
-            msgs.append(ChatMessage(role="user", content=player_text))
-        if dm_text:
-            dm = parse_dm_text(dm_text)
-            assistant_parts: list[str] = []
-            if dm.narration:
-                assistant_parts.append(dm.narration.strip())
-            if dm.choices:
-                assistant_parts.append("可选行动：\n" + "\n".join([f"- {c}" for c in dm.choices]))
-            assistant_content = "\n\n".join([p for p in assistant_parts if p.strip()]).strip()
-            msgs.append(ChatMessage(role="assistant", content=assistant_content or dm_text))
-    return msgs
-
-
-def build_turn_messages_and_preview(
-    conn: sqlite3.Connection,
-    *,
-    campaign_id: int,
-    session_id: int,
-    player_text: str,
-    state_block: str,
-    tags: list[str] | None,
-    memory_cfg: MemoryConfig,
-) -> tuple[list[ChatMessage], list[dict]]:
-    """
-    Build full LLM message list for a turn, and return recalled world preview for UI.
-    This is shared by both non-streaming and streaming turn implementations.
-    """
-    world_blocks, world_preview = _fetch_world_bible(conn, campaign_id=campaign_id, tags=tags)
-
-    open_threads = plot_threads.list_open_threads(conn, session_id=session_id, limit=20)
-    thread_blocks: list[str] = []
-    for t in open_threads:
-        title = (t.get("title") or "").strip()
-        pri = t.get("priority", 0)
-        summary = (t.get("summary") or "").strip()
-        next_step = (t.get("next_step") or "").strip()
-        tags_text = (t.get("tags") or "").strip()
-        parts = [f"[P{pri}] {title}"]
-        if tags_text:
-            parts.append(f"标签：{tags_text}")
-        if summary:
-            parts.append(f"进展：{summary}")
-        if next_step:
-            parts.append(f"下一步：{next_step}")
-        thread_blocks.append("\n".join(parts).strip())
-
-    # Memory pyramid (MVP): inject campaign + latest chapter summaries if present.
-    campaign_sum = summaries.get_latest_summary(conn, session_id=session_id, level="campaign")
-    chapter_sum = summaries.get_latest_summary(conn, session_id=session_id, level="chapter")
-    story_blocks = _fetch_story_journal(conn, session_id=session_id, limit=memory_cfg.story_journal_for_prompt)
-
-    if campaign_sum and (campaign_sum.get("summary") or "").strip():
-        story_blocks = ["【战役总摘要】\n" + (campaign_sum.get("summary") or "").strip()] + story_blocks
-    if chapter_sum and (chapter_sum.get("summary") or "").strip():
-        story_blocks = ["【最近章节摘要】\n" + (chapter_sum.get("summary") or "").strip()] + story_blocks
-
-    memory = RetrievedMemory(world_bible_blocks=world_blocks, story_blocks=story_blocks, plot_threads_blocks=thread_blocks)
-    messages = build_dm_messages(memory=memory, state_block=state_block)
-    messages.extend(_fetch_recent_turn_context(conn, session_id=session_id, limit=memory_cfg.history_turns_for_prompt))
-    messages.append(ChatMessage(role="user", content=player_text))
-    return messages, world_preview
-
-
 def persist_turn(
     conn: sqlite3.Connection,
     *,
@@ -231,6 +115,7 @@ def persist_turn(
     dm_raw: str,
     dm_struct: DMStructuredResponse,
     recalled_world: list[dict],
+    recalled_context: list[dict] | None = None,
     dice_events: list[DiceEvent] | None = None,
 ) -> TurnResult:
     """
@@ -280,6 +165,7 @@ def persist_turn(
         dm=dm_struct,
         recalled_world=recalled_world,
         dice_events=safe_dice_events,
+        recalled_context=list(recalled_context or []),
     )
 
 
@@ -294,61 +180,32 @@ def run_turn(
     tags: list[str] | None = None,
     memory_cfg: MemoryConfig | None = None,
 ) -> TurnResult:
+    """Compatibility entrypoint; turn semantics live in agents.TurnPipeline."""
+    from one_person_dnd.agents.pipeline import TurnPipeline
+    from one_person_dnd.domain.actions import PlayerAction
+
     conn = get_connection(db_path)
     try:
         memory_cfg = memory_cfg or MemoryConfig()
-        dice_events = roll_events_from_text(player_text, max_rolls=5)
-        effective_state_block = (state_block or "").strip()
-        if dice_events:
-            dice_block = "【系统掷骰结果】\n" + format_events_for_prompt(dice_events)
-            effective_state_block = (effective_state_block + "\n\n" + dice_block).strip() if effective_state_block else dice_block
-
-        t0 = time.perf_counter()
-        messages, world_preview = build_turn_messages_and_preview(
-            conn,
+        client = create_llm_client(llm_cfg)
+        action = PlayerAction(
             campaign_id=campaign_id,
             session_id=session_id,
-            player_text=player_text,
-            state_block=effective_state_block,
-            tags=tags,
-            memory_cfg=memory_cfg,
+            text=player_text,
+            manual_tags=list(tags or []),
+            extra_context=(state_block or "").strip(),
         )
-        t_prompt = time.perf_counter()
-        msg_count = len(messages)
-        prompt_chars = sum(len(m.content or "") for m in messages)
-
-        client = create_llm_client(llm_cfg)
-        dm_raw, repaired = chat_dm_with_protocol_retry(client, messages, max_retries=1)
-        t_llm = time.perf_counter()
-        dm_struct = parse_dm_text(dm_raw)
-        t_parse = time.perf_counter()
-
-        result = persist_turn(
+        result = TurnPipeline(dm_client=client).run_non_streaming(
             conn,
-            session_id=session_id,
-            player_text=player_text,
-            dm_raw=dm_raw,
-            dm_struct=dm_struct,
-            recalled_world=world_preview,
-            dice_events=dice_events,
+            action=action,
+            memory_cfg=memory_cfg,
+            state_block=(state_block or "").strip(),
         )
-        t_persist = time.perf_counter()
-        conn.commit()
-
         logger.info(
-            "turn_done non_stream session=%s turn=%s prompt_chars=%s msg_count=%s repaired=%s prompt_ms=%s llm_ms=%s parse_ms=%s persist_ms=%s total_ms=%s",
+            "turn_done legacy_entry session=%s turn=%s",
             session_id,
             result.turn_index,
-            prompt_chars,
-            msg_count,
-            1 if repaired else 0,
-            int((t_prompt - t0) * 1000),
-            int((t_llm - t_prompt) * 1000),
-            int((t_parse - t_llm) * 1000),
-            int((t_persist - t_parse) * 1000),
-            int((t_persist - t0) * 1000),
         )
-
         return result
     finally:
         conn.close()
@@ -427,4 +284,3 @@ def _maybe_rollup_summaries(conn: sqlite3.Connection, *, session_id: int, curren
         end_turn=latest_end,
         summary=campaign_text,
     )
-

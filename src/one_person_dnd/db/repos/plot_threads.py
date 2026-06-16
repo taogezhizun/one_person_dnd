@@ -33,6 +33,19 @@ def list_open_threads(conn: sqlite3.Connection, *, session_id: int, limit: int =
     return list_threads(conn, session_id=session_id, status="open", limit=limit)
 
 
+def get_thread(conn: sqlite3.Connection, *, session_id: int, thread_id: int) -> dict | None:
+    row = conn.execute(
+        """
+        SELECT id, title, status, priority, summary, next_step, tags, updated_at, created_at
+        FROM plot_threads
+        WHERE id = ? AND session_id = ?
+        LIMIT 1
+        """,
+        (thread_id, session_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def create_thread(
     conn: sqlite3.Connection,
     *,
@@ -84,4 +97,3 @@ def set_status(conn: sqlite3.Connection, *, thread_id: int, session_id: int, sta
         """,
         (status, thread_id, session_id),
     )
-

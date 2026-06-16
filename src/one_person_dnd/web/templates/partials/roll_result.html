@@ -1,13 +1,15 @@
-<div class="notice">
+{% set modifier_text = "%+d"|format(event.modifier) if event.modifier else "+0" %}
+{% set roll_context = "掷骰结果：" ~ event.expr ~ " => [" ~ (event.rolls | join(', ')) ~ "] " ~ modifier_text ~ " = " ~ event.total %}
+<div class="notice roll-result">
   <div style="font-weight: 700;">掷骰结果</div>
   <div class="muted" style="margin-top: 6px;">
     {{ event.expr }} =&gt; [{{ event.rolls | join(', ') }}]
-    {% if event.modifier %}
-      {{ "%+d"|format(event.modifier) }}
-    {% else %}
-      +0
-    {% endif %}
+    {{ modifier_text }}
     = <strong>{{ event.total }}</strong>
   </div>
+  <div class="roll-result__actions">
+    <button class="btn btn--ghost" type="button" data-roll-context="{{ roll_context }}">
+      带入本回合线索
+    </button>
+  </div>
 </div>
-

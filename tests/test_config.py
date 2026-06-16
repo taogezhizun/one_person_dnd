@@ -42,6 +42,7 @@ class TestConfig(unittest.TestCase):
             m = load_memory_config(p)
             self.assertEqual(m.history_turns_for_prompt, HISTORY_TURNS_FOR_PROMPT)
             self.assertEqual(m.story_journal_for_prompt, STORY_JOURNAL_FOR_PROMPT)
+            self.assertEqual(m.context_chars_for_prompt, 12000)
 
     def test_memory_invalid_values_fallback_to_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -52,6 +53,7 @@ class TestConfig(unittest.TestCase):
                         "[memory]",
                         "history_turns_for_prompt = abc",
                         "story_journal_for_prompt = ???",
+                        "context_chars_for_prompt = nope",
                         "",
                     ]
                 ),
@@ -60,4 +62,24 @@ class TestConfig(unittest.TestCase):
             m = load_memory_config(p)
             self.assertEqual(m.history_turns_for_prompt, HISTORY_TURNS_FOR_PROMPT)
             self.assertEqual(m.story_journal_for_prompt, STORY_JOURNAL_FOR_PROMPT)
+            self.assertEqual(m.context_chars_for_prompt, 12000)
 
+    def test_memory_reads_context_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "api_config.ini"
+            p.write_text(
+                "\n".join(
+                    [
+                        "[memory]",
+                        "history_turns_for_prompt = 4",
+                        "story_journal_for_prompt = 8",
+                        "context_chars_for_prompt = 9000",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            m = load_memory_config(p)
+            self.assertEqual(m.history_turns_for_prompt, 4)
+            self.assertEqual(m.story_journal_for_prompt, 8)
+            self.assertEqual(m.context_chars_for_prompt, 9000)

@@ -7,6 +7,7 @@ from one_person_dnd.config import LLMConfig
 from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import app_settings, llm_profiles
 from one_person_dnd.llm import ChatMessage, LLMClientError, create_llm_client
+from one_person_dnd.llm.providers import apply_provider_defaults, list_provider_presets
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import ACTIVE_LLM_PROFILE_KEY, ensure_default_llm_profile_from_ini, templates
 
@@ -30,6 +31,7 @@ def models_page(request: Request) -> HTMLResponse:
         context={
             "profiles": profiles,
             "active_id": int(active_id) if active_id and active_id.isdigit() else None,
+            "provider_presets": list_provider_presets(),
         },
     )
 
@@ -60,14 +62,23 @@ def models_create(
     paths = ensure_app_dirs()
     conn = get_connection(paths.db_path)
     try:
+        cfg = apply_provider_defaults(
+            LLMConfig(
+                provider=(provider or "openai_compat").strip(),
+                base_url=base_url.strip(),
+                api_key=(api_key or "").strip(),
+                model=model.strip(),
+                timeout_seconds=float(timeout_seconds),
+            )
+        )
         pid = llm_profiles.create_profile(
             conn,
             name=name.strip(),
-            provider=(provider or "openai_compat").strip(),
-            base_url=base_url.strip(),
-            api_key=(api_key or "").strip(),
-            model=model.strip(),
-            timeout_seconds=float(timeout_seconds),
+            provider=cfg.provider,
+            base_url=cfg.base_url,
+            api_key=cfg.api_key,
+            model=cfg.model,
+            timeout_seconds=cfg.timeout_seconds,
         )
         # if no active yet, set this
         if not app_settings.get(conn, ACTIVE_LLM_PROFILE_KEY):
@@ -91,15 +102,26 @@ def models_update(
     paths = ensure_app_dirs()
     conn = get_connection(paths.db_path)
     try:
+        existing = llm_profiles.get_profile(conn, int(profile_id)) or {}
+        next_api_key = (api_key or "").strip() or (existing.get("api_key") or "")
+        cfg = apply_provider_defaults(
+            LLMConfig(
+                provider=(provider or "openai_compat").strip(),
+                base_url=base_url.strip(),
+                api_key=next_api_key,
+                model=model.strip(),
+                timeout_seconds=float(timeout_seconds),
+            )
+        )
         llm_profiles.update_profile(
             conn,
             profile_id=int(profile_id),
             name=name.strip(),
-            provider=(provider or "openai_compat").strip(),
-            base_url=base_url.strip(),
-            api_key=(api_key or "").strip(),
-            model=model.strip(),
-            timeout_seconds=float(timeout_seconds),
+            provider=cfg.provider,
+            base_url=cfg.base_url,
+            api_key=cfg.api_key,
+            model=cfg.model,
+            timeout_seconds=cfg.timeout_seconds,
         )
         conn.commit()
     finally:
@@ -167,4 +189,3 @@ def models_test(
         name="partials/test_result.html",
         context={"ok": ok, "message": message},
     )
-

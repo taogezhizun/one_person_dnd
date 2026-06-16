@@ -1,7 +1,65 @@
-<div class="chat__turn" id="turn-{{ turn.turn_index }}">
+{% set action_type_labels = {
+  "exploration": "探索",
+  "social": "社交",
+  "combat": "战斗",
+  "rest": "休息",
+  "inventory": "物品",
+  "meta": "系统/元指令"
+} %}
+{% set action_signal_labels = {
+  "explicit_roll": "已识别掷骰",
+  "state_change_likely": "可能影响角色状态",
+  "time_passes": "时间会推进",
+  "roll_may_be_needed": "可能需要掷骰",
+  "dm_should_adjudicate_outcome": "结果由 DM 判定"
+} %}
+{% set action_warning_labels = {
+  "possible_overreach": "行动可能越权",
+  "declared_success": "行动描述已包含结果",
+  "npc_outcome_claim": "NPC 结果需要 DM 判定"
+} %}
+{% set critic_warning_labels = {
+  "empty_dm_response": "DM 没有返回内容",
+  "missing_required_protocol_delimiters": "DM 输出缺少必要段落",
+  "empty_narration": "叙事内容为空",
+  "choice_count_out_of_range": "选项数量不适合继续游玩",
+  "malformed_state_delta": "状态变更建议格式有误"
+} %}
+{% set response_warning_labels = {
+  "duplicate_choices": "选项重复",
+  "non_actionable_choice": "选项过于笼统",
+  "choice_declares_outcome": "选项替玩家宣布结果"
+} %}
+
+<div
+  class="chat__turn"
+  id="turn-{{ turn.turn_index }}"
+  {% if turn.has_pending_review %}
+    data-turn-has-pending-review="1"
+    data-pending-review-delta="{{ turn.pending_review_delta or 1 }}"
+  {% endif %}
+>
   <div class="chat__msg chat__msg--user">
     <div class="chat__meta">你</div>
     <div class="chat__content pre">{{ turn.player_text | e }}</div>
+    {% if turn.action_assessment %}
+      <div class="action-assessment">
+        <div class="muted action-assessment__label">系统判定</div>
+        <div class="assessment-pills">
+          {% if turn.action_assessment.action_type %}
+            <span class="assessment-pill" title="{{ turn.action_assessment.action_type }}">
+              行动：{{ action_type_labels.get(turn.action_assessment.action_type, turn.action_assessment.action_type) }}
+            </span>
+          {% endif %}
+          {% for s in turn.action_assessment.signals or [] %}
+            <span class="assessment-pill" title="{{ s }}">{{ action_signal_labels.get(s, s) }}</span>
+          {% endfor %}
+          {% for w in turn.action_assessment.warnings or [] %}
+            <span class="assessment-pill assessment-pill--warn" title="{{ w }}">{{ action_warning_labels.get(w, w) }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
     {% if turn.dice_events and turn.dice_events|length > 0 %}
       <div class="dice-events" style="margin-top: 8px;">
         <div class="muted">系统掷骰</div>
@@ -25,14 +83,42 @@
 
   <div class="chat__msg chat__msg--assistant">
     <div class="chat__meta">DM</div>
+    {% if turn.critic_warnings %}
+      <div class="dm-review">
+        <div class="muted dm-review__label">DM 审查</div>
+        <div class="assessment-pills">
+          {% for w in turn.critic_warnings or [] %}
+            <span class="assessment-pill assessment-pill--warn" title="{{ w }}">{{ critic_warning_labels.get(w, w) }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+    {% if turn.response_warnings %}
+      <div class="response-review">
+        <div class="muted response-review__label">反应评估</div>
+        <div class="assessment-pills">
+          {% for w in turn.response_warnings or [] %}
+            <span class="assessment-pill assessment-pill--warn" title="{{ w }}">{{ response_warning_labels.get(w, w) }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
     <div class="chat__content md" data-md>{{ turn.dm.narration | e }}</div>
 
     {% if turn.dm.choices %}
       <div class="choices" style="margin-top: 10px;">
         <div class="muted">可选行动</div>
-        <ol>
+        <ol class="choices__list">
           {% for c in turn.dm.choices %}
-            <li>{{ c | e }}</li>
+            <li>
+              <button
+                class="choice-action"
+                type="button"
+                data-choice-action
+                aria-pressed="false"
+                data-choice-text="{{ c | e }}"
+              >{{ c | e }}</button>
+            </li>
           {% endfor %}
         </ol>
       </div>
@@ -53,4 +139,3 @@
     {% endif %}
   </div>
 </div>
-

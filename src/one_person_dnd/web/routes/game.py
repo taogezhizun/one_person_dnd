@@ -7,12 +7,14 @@ import time
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 
+from one_person_dnd.agents.pipeline import TurnPipeline
 from one_person_dnd.config import AppState, load_memory_config, save_app_state
 from one_person_dnd.db import get_connection
-from one_person_dnd.db.repos import campaigns, session_cheats, sessions, state_change_requests, turn_logs
-from one_person_dnd.engine.dice import format_events_for_prompt, roll_events_from_text, roll_expr
-from one_person_dnd.engine.orchestrator import build_turn_messages_and_preview, ensure_dm_protocol_output, persist_turn
+from one_person_dnd.db.repos import campaigns, plot_threads, session_cheats, sessions, state_change_requests, turn_logs
+from one_person_dnd.engine.dice import roll_expr
+from one_person_dnd.engine.orchestrator import ensure_dm_protocol_output
 from one_person_dnd.engine.parser import parse_dm_text
+from one_person_dnd.domain.actions import ActionAssessment, PlayerAction
 from one_person_dnd.llm import LLMClientError, create_llm_client
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import get_current_campaign_session, load_active_llm_config, templates
@@ -21,10 +23,48 @@ router = APIRouter()
 logger = logging.getLogger("one_person_dnd.web")
 
 
+def _build_turn_prompt_overrides(
+    *,
+    cheat_enabled: bool,
+    cheat_prompt: str,
+    state_block: str,
+) -> tuple[str, str]:
+    """
+    Return only per-turn route overrides.
+
+    Session title, current scene, pinned notes, and authoritative character state
+    are read once by ContextPack assembly. Keeping the route override limited to
+    the optional form field prevents duplicate prompt blocks.
+    """
+    turn_context = (state_block or "").strip()
+    effective_cheat_prompt = (cheat_prompt or "").strip() if cheat_enabled else ""
+    return turn_context, effective_cheat_prompt
+
+
+def _serialize_action_assessment(assessment: ActionAssessment | None) -> dict | None:
+    if assessment is None:
+        return None
+    return {
+        "action_type": assessment.action_type,
+        "signals": list(assessment.signals),
+        "warnings": list(assessment.warnings),
+    }
+
+
+def _pending_review_delta(dm) -> int:
+    delta = 0
+    if (getattr(dm, "state_delta_json", "") or "").strip():
+        delta += 1
+    if (getattr(dm, "thread_updates_json", "") or "").strip():
+        delta += 1
+    return delta
+
+
 @router.get("/game", response_class=HTMLResponse)
 def game(request: Request) -> HTMLResponse:
     campaign_id, session_id = get_current_campaign_session()
     paths = ensure_app_dirs()
+    llm_configured = load_active_llm_config() is not None
 
     conn = get_connection(paths.db_path)
     try:
@@ -36,6 +76,7 @@ def game(request: Request) -> HTMLResponse:
         session_state = s["session_state"] if s and "session_state" in s.keys() else ""
         pinned_world_notes = s["pinned_world_notes"] if s and "pinned_world_notes" in s.keys() else ""
         pending_count = len(state_change_requests.list_pending(conn, session_id=session_id, limit=200))
+        open_threads = plot_threads.list_open_threads(conn, session_id=session_id, limit=6)
         cheat_cfg = session_cheats.get_cheat(conn, session_id=session_id) or {}
         cheat_enabled = bool(int(cheat_cfg.get("enabled") or 0))
         cheat_prompt = (cheat_cfg.get("cheat_prompt") or "").strip()
@@ -78,8 +119,10 @@ def game(request: Request) -> HTMLResponse:
             "pinned_world_notes": pinned_world_notes or "",
             "sessions_list": sessions_list,
             "pending_count": pending_count,
+            "open_threads": open_threads,
             "cheat_enabled": cheat_enabled,
             "cheat_prompt": cheat_prompt,
+            "llm_configured": llm_configured,
             "turns": turns,
         },
     )
@@ -107,88 +150,39 @@ def game_turn(
 
     conn = get_connection(paths.db_path)
     try:
-        srow = sessions.get_session_sidebar(conn, session_id)
         cheat_cfg = session_cheats.get_cheat(conn, session_id=session_id) or {}
-        session_title = srow["title"] if srow else ""
-        current_scene = srow["current_scene"] if srow else ""
-        session_state = srow["session_state"] if srow and "session_state" in srow.keys() else ""
-        pinned_world_notes = srow["pinned_world_notes"] if srow and "pinned_world_notes" in srow.keys() else ""
         cheat_enabled = bool(int(cheat_cfg.get("enabled") or 0))
         cheat_prompt = (cheat_cfg.get("cheat_prompt") or "").strip()
     finally:
         conn.close()
 
-    state_parts = []
-    dice_events = roll_events_from_text(player_text, max_rolls=5)
-    if current_scene:
-        state_parts.append(f"当前场景：{current_scene}")
-    if session_title:
-        state_parts.append(f"会话：{session_title}")
-    if pinned_world_notes:
-        state_parts.append("【置顶世界设定】\n" + pinned_world_notes)
-    if session_state:
-        state_parts.append("【主角/队伍状态】\n" + session_state)
-    if cheat_enabled and cheat_prompt:
-        state_parts.append("【CheatDirective（仅在本会话生效）】\n" + cheat_prompt)
-    if dice_events:
-        state_parts.append("【系统掷骰结果】\n" + format_events_for_prompt(dice_events))
-    if (state_block or "").strip():
-        state_parts.append("【本回合额外上下文】\n" + (state_block or "").strip())
-    merged_state_block = "\n\n".join(state_parts).strip()
+    turn_context, effective_cheat_prompt = _build_turn_prompt_overrides(
+        cheat_enabled=cheat_enabled,
+        cheat_prompt=cheat_prompt,
+        state_block=state_block,
+    )
 
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
     try:
         memory_cfg = load_memory_config(paths.config_path)
-        # Keep non-streaming endpoint for fallback/compat.
-        # We build messages/persist via orchestrator to share logic with streaming.
+        client = create_llm_client(llm_cfg)
+        action = PlayerAction(
+            campaign_id=campaign_id,
+            session_id=session_id,
+            text=player_text,
+            manual_tags=tag_list,
+            extra_context=(state_block or "").strip(),
+        )
         conn = get_connection(paths.db_path)
         try:
-            t0 = time.perf_counter()
-            messages, recalled_world = build_turn_messages_and_preview(
+            result = TurnPipeline(dm_client=client).run_non_streaming(
                 conn,
-                campaign_id=campaign_id,
-                session_id=session_id,
-                player_text=player_text,
-                state_block=merged_state_block,
-                tags=tag_list or None,
+                action=action,
                 memory_cfg=memory_cfg,
+                state_block=turn_context,
+                cheat_prompt=effective_cheat_prompt,
             )
-            t_prompt = time.perf_counter()
-            msg_count = len(messages)
-            prompt_chars = sum(len(m.content or "") for m in messages)
-
-            client = create_llm_client(llm_cfg)
-            dm_raw = client.chat(messages)
-            dm_raw, repaired = ensure_dm_protocol_output(client, messages, dm_raw, max_retries=1)
-            t_llm = time.perf_counter()
-            dm_struct = parse_dm_text(dm_raw)
-            t_parse = time.perf_counter()
-
-            result = persist_turn(
-                conn,
-                session_id=session_id,
-                player_text=player_text,
-                dm_raw=dm_raw,
-                dm_struct=dm_struct,
-                recalled_world=recalled_world,
-                dice_events=dice_events,
-            )
-            conn.commit()
-            t_persist = time.perf_counter()
-
-            logger.info(
-                "turn_done web_non_stream session=%s turn=%s prompt_chars=%s msg_count=%s repaired=%s prompt_ms=%s llm_ms=%s parse_ms=%s persist_ms=%s total_ms=%s",
-                session_id,
-                result.turn_index,
-                prompt_chars,
-                msg_count,
-                1 if repaired else 0,
-                int((t_prompt - t0) * 1000),
-                int((t_llm - t_prompt) * 1000),
-                int((t_parse - t_llm) * 1000),
-                int((t_persist - t_parse) * 1000),
-                int((t_persist - t0) * 1000),
-            )
+            logger.info("turn_done web_non_stream session=%s turn=%s", session_id, result.turn_index)
         finally:
             conn.close()
 
@@ -201,8 +195,14 @@ def game_turn(
                     "player_text": player_text,
                     "dm": result.dm,
                     "dice_events": result.dice_events,
+                    "action_assessment": _serialize_action_assessment(result.action_assessment),
+                    "critic_warnings": list(result.critic_warnings or []),
+                    "response_warnings": list(result.response_warnings or []),
+                    "has_pending_review": _pending_review_delta(result.dm) > 0,
+                    "pending_review_delta": _pending_review_delta(result.dm),
                 },
                 "recalled_world": result.recalled_world,
+                "recalled_context": list(result.recalled_context or []),
             },
         )
     except LLMClientError as e:
@@ -241,37 +241,20 @@ def game_turn_stream(
 
     save_app_state(paths.config_path, AppState(active_campaign_id=campaign_id, active_session_id=session_id))
 
-    # Load session sidebar info and inject into state for DM (same as non-streaming).
+    # Load only route-scoped prompt overrides. Session sidebar state is read by ContextPack.
     conn0 = get_connection(paths.db_path)
     try:
-        srow = sessions.get_session_sidebar(conn0, session_id)
         cheat_cfg = session_cheats.get_cheat(conn0, session_id=session_id) or {}
-        session_title = srow["title"] if srow else ""
-        current_scene = srow["current_scene"] if srow else ""
-        session_state = srow["session_state"] if srow and "session_state" in srow.keys() else ""
-        pinned_world_notes = srow["pinned_world_notes"] if srow and "pinned_world_notes" in srow.keys() else ""
         cheat_enabled = bool(int(cheat_cfg.get("enabled") or 0))
         cheat_prompt = (cheat_cfg.get("cheat_prompt") or "").strip()
     finally:
         conn0.close()
 
-    state_parts = []
-    dice_events = roll_events_from_text(player_text, max_rolls=5)
-    if current_scene:
-        state_parts.append(f"当前场景：{current_scene}")
-    if session_title:
-        state_parts.append(f"会话：{session_title}")
-    if pinned_world_notes:
-        state_parts.append("【置顶世界设定】\n" + pinned_world_notes)
-    if session_state:
-        state_parts.append("【主角/队伍状态】\n" + session_state)
-    if cheat_enabled and cheat_prompt:
-        state_parts.append("【CheatDirective（仅在本会话生效）】\n" + cheat_prompt)
-    if dice_events:
-        state_parts.append("【系统掷骰结果】\n" + format_events_for_prompt(dice_events))
-    if (state_block or "").strip():
-        state_parts.append("【本回合额外上下文】\n" + (state_block or "").strip())
-    merged_state_block = "\n\n".join(state_parts).strip()
+    turn_context, effective_cheat_prompt = _build_turn_prompt_overrides(
+        cheat_enabled=cheat_enabled,
+        cheat_prompt=cheat_prompt,
+        state_block=state_block,
+    )
 
     tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
     memory_cfg = load_memory_config(paths.config_path)
@@ -287,20 +270,26 @@ def game_turn_stream(
         try:
             conn = get_connection(paths.db_path)
             try:
-                messages, recalled_world = build_turn_messages_and_preview(
-                    conn,
+                client = create_llm_client(llm_cfg)
+                action = PlayerAction(
                     campaign_id=campaign_id,
                     session_id=session_id,
-                    player_text=player_text,
-                    state_block=merged_state_block,
-                    tags=tag_list or None,
+                    text=player_text,
+                    manual_tags=tag_list,
+                    extra_context=(state_block or "").strip(),
+                )
+                pipeline = TurnPipeline(dm_client=client)
+                messages, recalled_world, recalled_context, dice_events, action_assessment = pipeline.prepare_messages(
+                    conn,
+                    action=action,
                     memory_cfg=memory_cfg,
+                    state_block=turn_context,
+                    cheat_prompt=effective_cheat_prompt,
                 )
                 t_prompt = time.perf_counter()
                 msg_count = len(messages)
                 prompt_chars = sum(len(m.content or "") for m in messages)
 
-                client = create_llm_client(llm_cfg)
                 for delta in client.chat_stream_sse(messages):
                     if first_token_ms is None:
                         first_token_ms = int((time.perf_counter() - t0) * 1000)
@@ -313,19 +302,17 @@ def game_turn_stream(
                 # perceive the SSE as "stuck" (no final event). We keep best-effort parsing downstream.
                 dm_raw, repaired = ensure_dm_protocol_output(client, messages, dm_raw, max_retries=0)
                 t_llm = time.perf_counter()
-                dm_struct = parse_dm_text(dm_raw)
                 t_parse = time.perf_counter()
 
-                result = persist_turn(
+                result = pipeline.persist_dm_output(
                     conn,
-                    session_id=session_id,
-                    player_text=player_text,
+                    action=action,
                     dm_raw=dm_raw,
-                    dm_struct=dm_struct,
                     recalled_world=recalled_world,
                     dice_events=dice_events,
+                    recalled_context=recalled_context,
+                    action_assessment=action_assessment,
                 )
-                conn.commit()
                 t_persist = time.perf_counter()
 
                 logger.info(
@@ -350,6 +337,11 @@ def game_turn_stream(
                             "turn_index": result.turn_index,
                             "player_text": player_text,
                             "dice_events": result.dice_events,
+                            "action_assessment": _serialize_action_assessment(result.action_assessment),
+                            "critic_warnings": list(result.critic_warnings or []),
+                            "response_warnings": list(result.response_warnings or []),
+                            "has_pending_review": _pending_review_delta(result.dm) > 0,
+                            "pending_review_delta": _pending_review_delta(result.dm),
                             "dm": {
                                 "narration": result.dm.narration,
                                 "choices": result.dm.choices,
@@ -358,6 +350,7 @@ def game_turn_stream(
                             },
                         },
                         "recalled_world": result.recalled_world,
+                        "recalled_context": list(result.recalled_context or []),
                     },
                 )
             finally:
@@ -437,4 +430,3 @@ def game_session_update(
         name="partials/save_ok.html",
         context={"message": "已保存"},
     )
-

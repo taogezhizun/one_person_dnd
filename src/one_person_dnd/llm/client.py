@@ -6,6 +6,7 @@ from typing import Any, Iterable
 import httpx
 
 from one_person_dnd.config import LLMConfig
+from one_person_dnd.llm.providers import apply_provider_defaults, transport_provider
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,7 @@ class LLMClientError(RuntimeError):
 
 class OpenAICompatClient:
     def __init__(self, cfg: LLMConfig) -> None:
-        self._cfg = cfg
+        self._cfg = apply_provider_defaults(cfg)
 
     def _endpoint(self) -> str:
         """
@@ -168,16 +169,16 @@ def create_llm_client(cfg: LLMConfig) -> OpenAICompatClient:
     """
     Factory for selecting LLM provider implementation.
 
-    Current: only OpenAI-compatible is implemented.
+    Current: OpenAI-compatible transports, including provider presets such as DeepSeek.
     Future: add OllamaClient etc. and branch by cfg.provider.
     """
-    provider = (cfg.provider or "openai_compat").strip().lower()
+    effective = apply_provider_defaults(cfg)
+    provider = transport_provider(effective.provider).strip().lower()
     if provider in ("openai_compat", "openai-compatible", "openai"):
-        return OpenAICompatClient(cfg)
+        return OpenAICompatClient(effective)
 
     raise LLMClientError(
         f"Unsupported LLM provider: {cfg.provider}. "
-        "Current supported: openai_compat. "
+        "Current supported: openai_compat, deepseek. "
         "Future providers (e.g. ollama) can be added via adapters."
     )
-
