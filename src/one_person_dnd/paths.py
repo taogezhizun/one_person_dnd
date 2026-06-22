@@ -36,4 +36,3 @@ def ensure_app_dirs() -> AppPaths:
     paths = get_app_paths()
     paths.app_dir.mkdir(parents=True, exist_ok=True)
     return paths
-

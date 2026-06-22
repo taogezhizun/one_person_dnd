@@ -43,4 +43,3 @@ def create_app() -> FastAPI:
     web_dir = Path(__file__).resolve().parent
     app.mount("/static", StaticFiles(directory=str(web_dir / "static")), name="static")
     return app
-

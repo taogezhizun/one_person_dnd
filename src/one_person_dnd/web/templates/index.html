@@ -3,30 +3,45 @@
 {% block title %}主页 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>one_person_dnd</h1>
-
-  <div class="card">
-    <div class="card__title">当前战役</div>
-    <div class="muted">Campaign：{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</div>
-    <div class="muted">Session：{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</div>
-    <p>
-      <a class="btn" href="/game">进入当前会话</a>
-      <a class="btn btn--ghost" href="/saves">选择/管理战役</a>
-    </p>
-  </div>
-
-  {% if llm_configured %}
-    <div class="card">
-      <div class="card__title">LLM 已配置</div>
-      <div class="muted">配置文件：{{ config_filename }}</div>
-      <p><a class="btn" href="/game">进入游戏</a></p>
+  <section class="home-dashboard">
+    <div class="home-panel home-panel--primary ledger-rail">
+      <div class="home-panel__kicker">one_person_dnd</div>
+      <h1 class="home-panel__title">当前冒险桌面</h1>
+      <div class="home-status">
+        <div class="home-status__row">
+          <span class="home-status__label">Campaign</span>
+          <span class="home-status__value">{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</span>
+        </div>
+        <div class="home-status__row">
+          <span class="home-status__label">Session</span>
+          <span class="home-status__value">{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</span>
+        </div>
+      </div>
+      <div class="home-panel__actions">
+        <a class="btn" href="/game">继续当前会话</a>
+        <a class="btn btn--ghost" href="/new">创建新冒险</a>
+        <a class="btn btn--ghost" href="/saves">管理冒险</a>
+      </div>
     </div>
-  {% else %}
-    <div class="card">
-      <div class="card__title">需要先配置 LLM</div>
-      <div class="muted">配置文件：{{ config_filename }}</div>
-      <p><a class="btn" href="/setup">去配置</a></p>
+
+    <div class="home-panel">
+      {% if llm_configured %}
+        <div class="home-panel__kicker">DM 连接</div>
+        <div class="card__title">LLM 已配置</div>
+        <div class="muted">配置文件：{{ config_filename }}</div>
+        <div class="home-panel__actions">
+          <a class="btn" href="/game">进入游戏</a>
+          <a class="btn btn--ghost" href="/models">配置模型</a>
+        </div>
+      {% else %}
+        <div class="home-panel__kicker">DM 连接</div>
+        <div class="card__title">需要先配置 LLM</div>
+        <div class="muted">配置文件：{{ config_filename }}</div>
+        <div class="home-panel__actions">
+          <a class="btn" href="/models">去配置模型</a>
+          <a class="btn btn--ghost" href="/models">配置模型</a>
+        </div>
+      {% endif %}
     </div>
-  {% endif %}
+  </section>
 {% endblock %}
-

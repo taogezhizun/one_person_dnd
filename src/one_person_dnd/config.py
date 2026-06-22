@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from getpass import getpass
 from pathlib import Path
 
+from one_person_dnd.engine.constants import CONTEXT_CHARS_FOR_PROMPT, HISTORY_TURNS_FOR_PROMPT, STORY_JOURNAL_FOR_PROMPT
+
 
 @dataclass(frozen=True)
 class LLMConfig:
@@ -12,12 +14,28 @@ class LLMConfig:
     api_key: str
     model: str
     timeout_seconds: float = 60.0
+    provider: str = "openai_compat"
+    # Optional OpenAI-compatible sampling knobs (passed through if set).
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
 
 
 @dataclass(frozen=True)
 class AppState:
     active_campaign_id: int | None = None
     active_session_id: int | None = None
+
+
+@dataclass(frozen=True)
+class MemoryConfig:
+    """
+    Optional memory-related knobs. If missing from api_config.ini, defaults are used.
+    """
+
+    history_turns_for_prompt: int = HISTORY_TURNS_FOR_PROMPT
+    story_journal_for_prompt: int = STORY_JOURNAL_FOR_PROMPT
+    context_chars_for_prompt: int = CONTEXT_CHARS_FOR_PROMPT
 
 
 @dataclass(frozen=True)
@@ -40,29 +58,57 @@ def load_llm_config(config_path: Path) -> LLMConfig | None:
         return None
 
     sec = cp["llm"]
+    provider = (sec.get("provider") or "openai_compat").strip() or "openai_compat"
     base_url = (sec.get("base_url") or "").strip()
     api_key = (sec.get("api_key") or "").strip()
     model = (sec.get("model") or "").strip()
     timeout_seconds = float((sec.get("timeout_seconds") or "60").strip())
 
-    if not base_url or not api_key or not model:
+    def _read_opt_float(key: str) -> float | None:
+        raw = (sec.get(key) or "").strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except Exception:
+            return None
+
+    def _read_opt_int(key: str) -> int | None:
+        raw = (sec.get(key) or "").strip()
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except Exception:
+            return None
+
+    # api_key may be empty for local/self-hosted OpenAI-compatible servers.
+    if not base_url or not model:
         return None
 
     return LLMConfig(
+        provider=provider,
         base_url=base_url,
         api_key=api_key,
         model=model,
         timeout_seconds=timeout_seconds,
+        temperature=_read_opt_float("temperature"),
+        top_p=_read_opt_float("top_p"),
+        max_tokens=_read_opt_int("max_tokens"),
     )
 
 
 def save_llm_config(config_path: Path, cfg: LLMConfig) -> None:
     cp = _read_config(config_path)
     cp["llm"] = {
+        "provider": (cfg.provider or "openai_compat").strip(),
         "base_url": cfg.base_url.strip(),
         "api_key": cfg.api_key.strip(),
         "model": cfg.model.strip(),
         "timeout_seconds": str(cfg.timeout_seconds),
+        "temperature": "" if cfg.temperature is None else str(cfg.temperature),
+        "top_p": "" if cfg.top_p is None else str(cfg.top_p),
+        "max_tokens": "" if cfg.max_tokens is None else str(cfg.max_tokens),
     }
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with config_path.open("w", encoding="utf-8") as f:
@@ -94,6 +140,30 @@ def save_app_state(config_path: Path, state: AppState) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with config_path.open("w", encoding="utf-8") as f:
         cp.write(f)
+
+
+def load_memory_config(config_path: Path) -> MemoryConfig:
+    cp = _read_config(config_path)
+    if "memory" not in cp:
+        return MemoryConfig()
+
+    sec = cp["memory"]
+    defaults = MemoryConfig()
+
+    def _read_int(key: str, default: int) -> int:
+        raw = (sec.get(key) or "").strip()
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except Exception:
+            return default
+
+    return MemoryConfig(
+        history_turns_for_prompt=_read_int("history_turns_for_prompt", defaults.history_turns_for_prompt),
+        story_journal_for_prompt=_read_int("story_journal_for_prompt", defaults.story_journal_for_prompt),
+        context_chars_for_prompt=_read_int("context_chars_for_prompt", defaults.context_chars_for_prompt),
+    )
 
 
 def load_server_config(config_path: Path) -> ServerConfig:
@@ -154,6 +224,7 @@ def interactive_ensure_llm_config(config_path: Path) -> LLMConfig | None:
         return None
 
     cfg = LLMConfig(
+        provider="openai_compat",
         base_url=base_url,
         api_key=api_key,
         model=model,
@@ -189,4 +260,3 @@ def interactive_ensure_server_config(config_path: Path) -> ServerConfig:
     save_server_config(config_path, cfg)
     print("server 配置已保存。")
     return cfg
-

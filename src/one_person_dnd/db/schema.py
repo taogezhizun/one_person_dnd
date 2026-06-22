@@ -6,7 +6,7 @@ from pathlib import Path
 from one_person_dnd.db.conn import get_connection
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 8
 
 
 def _apply_schema_v1(conn: sqlite3.Connection) -> None:
@@ -83,6 +83,176 @@ def _apply_schema_v2(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE sessions ADD COLUMN pinned_world_notes TEXT;")
 
 
+def _apply_schema_v3(conn: sqlite3.Connection) -> None:
+    """
+    Plot threads (Quest/Thread Tracker) for long-term continuity.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS plot_threads (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open', -- open | closed
+          priority INTEGER NOT NULL DEFAULT 0,
+          summary TEXT,
+          next_step TEXT,
+          tags TEXT,
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_plot_threads_session_id ON plot_threads(session_id);
+        CREATE INDEX IF NOT EXISTS idx_plot_threads_status ON plot_threads(status);
+        """
+    )
+
+
+def _apply_schema_v4(conn: sqlite3.Connection) -> None:
+    """
+    Memory pyramid: turn-indexed journal + session-level summaries.
+    """
+    # story_journal_entries.turn_index (optional but enables rollup ranges)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(story_journal_entries);").fetchall()}
+    if "turn_index" not in cols:
+        conn.execute("ALTER TABLE story_journal_entries ADD COLUMN turn_index INTEGER;")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_story_journal_turn_index ON story_journal_entries(session_id, turn_index);")
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS session_summaries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER NOT NULL,
+          level TEXT NOT NULL, -- chapter | campaign
+          start_turn INTEGER NOT NULL,
+          end_turn INTEGER NOT NULL,
+          summary TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_summaries_session_level ON session_summaries(session_id, level);
+        """
+    )
+
+
+def _apply_schema_v5(conn: sqlite3.Connection) -> None:
+    """
+    Structured character sheet + change requests workflow.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS character_sheets (
+          session_id INTEGER PRIMARY KEY,
+          json_text TEXT NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS state_change_requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER NOT NULL,
+          turn_index INTEGER NOT NULL,
+          kind TEXT NOT NULL DEFAULT 'state_delta', -- state_delta | thread_updates
+          delta_json_text TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending', -- pending | applied | rejected
+          error_text TEXT,
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_state_change_requests_session_status ON state_change_requests(session_id, status);
+        """
+    )
+
+
+def _apply_schema_v6(conn: sqlite3.Connection) -> None:
+    """
+    Persist multiple LLM profiles (model configs) and small app settings.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS llm_profiles (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          provider TEXT NOT NULL DEFAULT 'openai_compat',
+          base_url TEXT NOT NULL,
+          api_key TEXT,
+          model TEXT NOT NULL,
+          timeout_seconds REAL NOT NULL DEFAULT 60.0,
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+        );
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        );
+        """
+    )
+
+
+def _apply_schema_v7(conn: sqlite3.Connection) -> None:
+    """
+    Session process metadata + snapshot storage.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions);").fetchall()}
+    if "status" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active';")
+    if "parent_session_id" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN parent_session_id INTEGER;")
+    if "last_played_at" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN last_played_at TEXT;")
+
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+        CREATE INDEX IF NOT EXISTS idx_sessions_parent_session_id ON sessions(parent_session_id);
+
+        CREATE TABLE IF NOT EXISTS session_snapshots (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER NOT NULL,
+          snapshot_name TEXT NOT NULL,
+          turn_index INTEGER NOT NULL DEFAULT 0,
+          current_scene TEXT,
+          session_state TEXT,
+          pinned_world_notes TEXT,
+          character_sheet_json TEXT,
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_snapshots_session_id ON session_snapshots(session_id);
+        CREATE INDEX IF NOT EXISTS idx_session_snapshots_session_turn ON session_snapshots(session_id, turn_index);
+        """
+    )
+
+
+def _apply_schema_v8(conn: sqlite3.Connection) -> None:
+    """
+    Cheat directives + manual change audit logs.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS session_cheats (
+          session_id INTEGER PRIMARY KEY,
+          enabled INTEGER NOT NULL DEFAULT 0,
+          cheat_prompt TEXT,
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS manual_change_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER NOT NULL,
+          actor TEXT NOT NULL DEFAULT 'player',
+          change_type TEXT NOT NULL,
+          detail_json_text TEXT,
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_manual_change_logs_session_id ON manual_change_logs(session_id);
+        """
+    )
+
+
 def init_db(db_path: Path) -> None:
     """
     Initialize (and lightly migrate) the SQLite database using PRAGMA user_version.
@@ -93,17 +263,36 @@ def init_db(db_path: Path) -> None:
         current_version = int(conn.execute("PRAGMA user_version;").fetchone()[0])
         if current_version == 0:
             _apply_schema_v1(conn)
+            current_version = 1
+
+        # Sequential migrations
+        if current_version < 2:
             _apply_schema_v2(conn)
-            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION};")
-            conn.commit()
-        elif current_version == 1:
-            _apply_schema_v2(conn)
-            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION};")
-            conn.commit()
-        elif current_version > SCHEMA_VERSION:
+            current_version = 2
+        if current_version < 3:
+            _apply_schema_v3(conn)
+            current_version = 3
+        if current_version < 4:
+            _apply_schema_v4(conn)
+            current_version = 4
+        if current_version < 5:
+            _apply_schema_v5(conn)
+            current_version = 5
+        if current_version < 6:
+            _apply_schema_v6(conn)
+            current_version = 6
+        if current_version < 7:
+            _apply_schema_v7(conn)
+            current_version = 7
+        if current_version < 8:
+            _apply_schema_v8(conn)
+            current_version = 8
+
+        conn.execute(f"PRAGMA user_version = {current_version};")
+        conn.commit()
+        if current_version > SCHEMA_VERSION:
             raise RuntimeError(
                 f"DB schema version {current_version} is newer than app supports ({SCHEMA_VERSION})."
             )
     finally:
         conn.close()
-

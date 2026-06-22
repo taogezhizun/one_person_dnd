@@ -11,4 +11,3 @@ def get_connection(db_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous = NORMAL;")
     return conn
-

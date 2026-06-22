@@ -3,90 +3,350 @@
 {% block title %}游戏 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>游戏</h1>
-
-  <div class="grid">
-    <section class="card">
-      <div class="card__title">对话</div>
-
-      <form
-        id="turn-form"
-        class="form"
-        hx-post="/game/turn"
-        hx-target="#turn-result"
-        hx-swap="innerHTML"
-        hx-indicator="#turn-loading"
-      >
-        <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
-        <input type="hidden" name="session_id" value="{{ session_id }}" />
-        <label class="label">
-          玩家输入
-          <textarea class="input textarea" name="player_text" required placeholder="描述你的行动..."></textarea>
-        </label>
-        <label class="label">
-          标签（用于检索 WorldBible，逗号分隔，可选）
-          <input class="input" name="tags" placeholder="酒馆,盗贼公会,某NPC" />
-        </label>
-        <label class="label">
-          当前状态（可选，给 DM 的额外上下文）
-          <textarea class="input textarea" name="state_block" placeholder="队伍状态、地点、时间、已知线索..."></textarea>
-        </label>
-        <div class="row">
-          <button class="btn" type="submit">发送</button>
-          <span id="turn-loading" class="htmx-indicator spinner">DM 思考中…</span>
+  {% macro action_composer(campaign_id, session_id, llm_ready=True, show_starter_actions=False) %}
+    <form
+      id="turn-form"
+      class="form action-composer"
+      data-llm-ready="{% if llm_ready %}1{% else %}0{% endif %}"
+      hx-post="/game/turn"
+      hx-target="#chat-history"
+      hx-swap="beforeend"
+      hx-indicator="#turn-loading"
+    >
+      <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
+      <input type="hidden" name="session_id" value="{{ session_id }}" />
+      <div class="action-composer__header">
+        <div>
+          <div class="action-composer__kicker">玩家回合</div>
+          <div class="action-composer__title">下一步行动</div>
         </div>
-      </form>
-
-      <div id="turn-result"></div>
-    </section>
-
-    <aside class="card">
-      <div class="card__title">信息栏</div>
-      <div class="muted"><a href="/saves">管理存档</a></div>
-
-      <div class="kv" style="margin-top: 8px;">
-        <div class="kv__k">Campaign</div><div class="kv__v">{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</div>
-        <div class="kv__k">Session</div><div class="kv__v">{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</div>
+        <div class="action-composer__mark">Action</div>
+      </div>
+      <label class="label action-composer__field">
+        下一步行动
+        <textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow placeholder="描述你的行动…"></textarea>
+      </label>
+      <div class="action-composer__feedback" data-choice-feedback role="status" aria-live="polite" hidden></div>
+      <div class="action-composer__context-feedback" data-turn-context-feedback role="status" aria-live="polite" hidden></div>
+      {% if not llm_ready %}
+        <div class="notice notice--err action-composer__notice">
+          <div style="font-weight:700;">DM 尚未连接</div>
+          <div class="muted">先到 <a href="/models">模型</a> 页面保存并启用一个可用配置，再开始行动。</div>
+          <div class="action-composer__notice-actions">
+            <a class="btn btn--ghost" href="/models">去配置模型</a>
+          </div>
+        </div>
+      {% endif %}
+      {% if show_starter_actions and llm_ready %}
+        <div class="starter-actions" aria-label="开场行动">
+          <div class="starter-actions__label">开场行动</div>
+          <div class="choices__list starter-actions__list">
+            {% for text in ["观察四周", "检查随身物品", "和最近的人交谈"] %}
+              <button type="button" class="choice-action" data-choice-action aria-pressed="false" data-choice-text="{{ text }}">{{ text }}</button>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+      <div class="row action-composer__controls">
+        <button
+          class="btn"
+          type="submit"
+          data-turn-submit
+          data-default-label="发送"
+          data-loading-label="发送中…"
+          disabled
+        >发送</button>
+        <button class="btn btn--ghost" type="button" id="turn-cancel" style="display:none;">取消</button>
+        <span id="turn-loading" class="htmx-indicator spinner" role="status" aria-live="polite">DM 思考中…</span>
       </div>
 
+      <details class="advanced" data-advanced-inputs>
+        <summary>高级选项</summary>
+        <label class="label">
+          标签（用于检索 WorldBible，逗号分隔，可选）
+          <input class="input" name="tags" data-turn-lockable placeholder="酒馆,盗贼公会,某NPC" />
+        </label>
+        <label class="label">
+          本回合额外线索（可选，只影响这次行动）
+          <textarea class="input textarea" name="state_block" data-turn-lockable placeholder="例如：我特别留意窗外脚步声，或提醒 DM 上回合的一个细节…"></textarea>
+        </label>
+      </details>
+    </form>
+  {% endmacro %}
+
+  {% macro chat_history(turns) %}
+    <div id="chat-history" class="chat-history">
+      {% if turns and turns|length > 0 %}
+        {% for turn in turns %}
+          {% include "partials/chat_turn.html" %}
+        {% endfor %}
+      {% else %}
+        <div class="muted">（暂无历史，对话从这里开始）</div>
+      {% endif %}
+    </div>
+  {% endmacro %}
+
+  {% macro quick_roll_panel() %}
+    <section class="tool-panel quick-roll-panel">
+      <div class="tool-panel__title">快速掷骰</div>
       <form
-        id="sidebar-form"
-        class="form"
-        hx-post="/game/session/update"
-        hx-target="#sidebar-save-result"
+        class="inline-form"
+        hx-post="/game/roll"
+        hx-target="#quick-roll-result"
         hx-swap="innerHTML"
-        hx-indicator="#sidebar-saving"
+        hx-indicator="#quick-roll-loading"
       >
-        <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
-        <input type="hidden" name="session_id" value="{{ session_id }}" />
-
-        <label class="label">
-          当前场景
-          <input class="input" name="current_scene" value="{{ current_scene }}" placeholder="例如：乌鸦酒馆二楼客房" />
-        </label>
-
-        <label class="label">
-          主角/队伍状态（会自动参与 DM 提示词）
-          <textarea class="input textarea" name="session_state" placeholder="你是谁/属性/HP/物品/目标...">{{ session_state }}</textarea>
-        </label>
-
-        <label class="label">
-          置顶世界设定（硬规则/重要NPC/关键地点，会自动参与 DM 提示词）
-          <textarea class="input textarea" name="pinned_world_notes" placeholder="世界硬规则/重要关系/禁忌...">{{ pinned_world_notes }}</textarea>
-        </label>
-
-        <div class="row">
-          <button class="btn" type="submit">保存</button>
-          <span id="sidebar-saving" class="htmx-indicator spinner">保存中…</span>
-        </div>
-        <div id="sidebar-save-result"></div>
+        <input
+          class="input input--compact"
+          name="roll_expr_text"
+          data-quick-roll-input
+          required
+          aria-label="掷骰表达式"
+          autocomplete="off"
+          placeholder="d20 / 1d20+5 / 2d6-1"
+        />
+        <button class="btn btn--ghost" type="submit" data-quick-roll-submit disabled>掷骰</button>
+        <span id="quick-roll-loading" class="htmx-indicator spinner" role="status" aria-live="polite">掷骰中…</span>
       </form>
+      <div id="quick-roll-result" class="muted quick-roll-panel__result" role="status" aria-live="polite">（在此显示掷骰结果）</div>
+    </section>
+  {% endmacro %}
 
-      <div class="card" style="margin-top: 12px;">
-        <div class="card__title">本回合召回设定</div>
-        <div id="recall-preview" class="muted">（发送一次行动后显示命中的 WorldBible 条目）</div>
+  {% macro play_tools(campaign_id, session_id, llm_ready=True, show_starter_actions=False) %}
+    <div class="play-tools">
+      {{ action_composer(campaign_id, session_id, llm_ready, show_starter_actions) }}
+      {{ quick_roll_panel() }}
+    </div>
+  {% endmacro %}
+
+  <div class="page-title-row">
+    <h1 class="page-title-row__title">游玩</h1>
+    <div class="page-actions">
+      <form method="post" action="/saves/session/enter" class="inline-form">
+        <select class="input input--compact" name="session_id">
+          {% for s in sessions_list %}
+            <option value="{{ s.id }}" {% if s.id == session_id %}selected{% endif %}>
+              #{{ s.id }} {{ s.title }}
+            </option>
+          {% endfor %}
+        </select>
+        <button class="btn btn--ghost" type="submit">切换会话</button>
+      </form>
+      {% if pending_count and pending_count > 0 %}
+        <span class="notice notice--err notice--compact" data-pending-pill>
+          待确认变更：<span data-pending-count>{{ pending_count }}</span>
+        </span>
+      {% else %}
+        <span class="notice notice--err notice--compact" data-pending-pill hidden>
+          待确认变更：<span data-pending-count>0</span>
+        </span>
+      {% endif %}
+      <button class="btn btn--ghost" type="button" id="toggle-sidebar-btn" data-sidebar-toggle>
+        收起冒险面板
+      </button>
+    </div>
+  </div>
+
+  <div class="game-status-strip">
+    <div class="status-tile">
+      <div class="status-tile__label">当前冒险</div>
+      <div class="status-tile__value">{{ campaign_name or ("#" ~ campaign_id) }}</div>
+    </div>
+    <div class="status-tile">
+      <div class="status-tile__label">当前会话</div>
+      <div class="status-tile__value">{{ session_title or ("#" ~ session_id) }}</div>
+    </div>
+    <div class="status-tile">
+      <div class="status-tile__label">待确认变更</div>
+      <div class="status-tile__value" data-pending-count>{% if pending_count and pending_count > 0 %}{{ pending_count }}{% else %}0{% endif %}</div>
+    </div>
+  </div>
+
+  <section
+    class="review-callout"
+    aria-label="待审状态和剧情线更新"
+    aria-live="polite"
+    data-review-callout
+    {% if not pending_count or pending_count <= 0 %}hidden{% endif %}
+  >
+    <div>
+      <div class="review-callout__eyebrow">待审状态 / 剧情线更新</div>
+      <div class="review-callout__text" data-review-callout-text>
+        有 {% if pending_count and pending_count > 0 %}{{ pending_count }}{% else %}0{% endif %} 条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。
+      </div>
+    </div>
+    <div class="review-callout__actions">
+      <a class="btn" href="#character-panel">查看待审</a>
+    </div>
+  </section>
+
+  <div class="grid grid--game {% if turns and turns|length > 0 %}grid--game-story-first{% endif %}">
+    <section class="card chat-card {% if turns and turns|length > 0 %}chat-card--story-first{% endif %}">
+      <div class="card__title">故事对话</div>
+
+      {% if turns and turns|length > 0 %}
+        <a class="mobile-action-jump" href="#turn-form" data-action-jump>
+          <span>
+            下一步行动
+            <span class="mobile-action-jump__meta">跳到输入区</span>
+          </span>
+          <span aria-hidden="true">↓</span>
+        </a>
+        {{ chat_history(turns) }}
+        {{ play_tools(campaign_id, session_id, llm_configured|default(true)) }}
+      {% else %}
+        {{ play_tools(campaign_id, session_id, llm_configured|default(true), true) }}
+        {{ chat_history(turns) }}
+      {% endif %}
+    </section>
+
+    <aside class="card sidebar-card" id="game-sidebar">
+      <div class="card__title">冒险面板</div>
+
+      <div class="panel-tabs">
+        <input class="panel-tabs__radio" type="radio" name="adventure-panel-tab" id="panel-tab-character" checked />
+        <input class="panel-tabs__radio" type="radio" name="adventure-panel-tab" id="panel-tab-world" />
+        <input class="panel-tabs__radio" type="radio" name="adventure-panel-tab" id="panel-tab-threads" />
+        <input class="panel-tabs__radio" type="radio" name="adventure-panel-tab" id="panel-tab-system" />
+
+        <div class="panel-tabs__list" role="tablist" aria-label="冒险面板分区">
+          <label id="panel-tab-label-character" class="panel-tabs__tab" for="panel-tab-character" role="tab" tabindex="0" aria-selected="true" aria-controls="panel-character" data-panel-tab="panel-tab-character">角色</label>
+          <label id="panel-tab-label-world" class="panel-tabs__tab" for="panel-tab-world" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-world" data-panel-tab="panel-tab-world">世界</label>
+          <label id="panel-tab-label-threads" class="panel-tabs__tab" for="panel-tab-threads" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-threads" data-panel-tab="panel-tab-threads">剧情</label>
+          <label id="panel-tab-label-system" class="panel-tabs__tab" for="panel-tab-system" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-system" data-panel-tab="panel-tab-system">系统</label>
+        </div>
+
+        <div class="panel-tabs__panels">
+          <section id="panel-character" role="tabpanel" aria-labelledby="panel-tab-label-character" class="panel-tabs__panel panel-tabs__panel--character">
+            <div class="panel-section panel-section--first">
+              <div class="panel-section__title">角色卡与变更</div>
+              <div
+                id="character-panel"
+                hx-get="/character/panel"
+                hx-trigger="load"
+                hx-swap="innerHTML"
+              >
+                <div class="muted" style="margin-top: 12px;">（加载角色卡中…）</div>
+              </div>
+            </div>
+          </section>
+
+          <section id="panel-world" role="tabpanel" aria-labelledby="panel-tab-label-world" class="panel-tabs__panel panel-tabs__panel--world">
+            <form
+              id="sidebar-form"
+              class="form"
+              hx-post="/game/session/update"
+              hx-target="#sidebar-save-result"
+              hx-swap="innerHTML"
+              hx-indicator="#sidebar-saving"
+            >
+              <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
+              <input type="hidden" name="session_id" value="{{ session_id }}" />
+
+              <div class="panel-section panel-section--first">
+                <div class="panel-section__title">场景与世界</div>
+                <label class="label">
+                  当前场景
+                  <input class="input" name="current_scene" value="{{ current_scene }}" placeholder="例如：乌鸦酒馆二楼客房" />
+                </label>
+
+                <label class="label">
+                  临时状态备注（补充角色卡之外的状态）
+                  <textarea class="input textarea" name="session_state" placeholder="例如：正在潜行、带着诅咒、NPC 正在同行…">{{ session_state }}</textarea>
+                </label>
+
+                <label class="label">
+                  置顶世界设定（硬规则/重要 NPC/关键地点）
+                  <textarea class="input textarea" name="pinned_world_notes" placeholder="世界硬规则/重要关系/禁忌…">{{ pinned_world_notes }}</textarea>
+                </label>
+                <div style="margin-top: 12px;">
+                  <div class="muted" style="font-weight: 700;">本回合参考</div>
+                  <div id="recall-preview" class="muted">（发送一次行动后显示 DM 使用的角色、世界、剧情线、故事记忆、掷骰和行动判定）</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <button class="btn" type="submit">保存</button>
+                <span id="sidebar-saving" class="htmx-indicator spinner" role="status" aria-live="polite">保存中…</span>
+              </div>
+              <div id="sidebar-save-result" role="status" aria-live="polite"></div>
+            </form>
+          </section>
+
+          <section id="panel-threads" role="tabpanel" aria-labelledby="panel-tab-label-threads" class="panel-tabs__panel panel-tabs__panel--threads">
+            <div class="panel-section panel-section--first">
+              <div class="panel-section__title">当前剧情线</div>
+              {% if open_threads and open_threads|length > 0 %}
+                <div class="thread-stack">
+                  {% for t in open_threads %}
+                    <article class="thread-mini">
+                      <div class="thread-mini__head">
+                        <div class="thread-mini__title">#{{ t.id }} {{ t.title }}</div>
+                        <span class="thread-mini__priority">P{{ t.priority or 0 }}</span>
+                      </div>
+                      {% if t.summary %}
+                        <div class="muted thread-mini__text">{{ t.summary }}</div>
+                      {% endif %}
+                      {% if t.next_step %}
+                        <div class="thread-mini__next">下一步：{{ t.next_step }}</div>
+                      {% endif %}
+                      {% if t.tags %}
+                        <div class="muted thread-mini__tags">{{ t.tags }}</div>
+                      {% endif %}
+                    </article>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="muted">（暂无进行中的剧情线）</div>
+              {% endif %}
+            </div>
+
+            <div class="panel-section">
+              <div class="panel-section__title">剧情与会话</div>
+              <div class="kv">
+                <div class="kv__k">冒险</div><div class="kv__v">{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</div>
+                <div class="kv__k">会话</div><div class="kv__v">{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</div>
+              </div>
+              <div class="row">
+                <a class="btn btn--ghost" href="/threads">剧情线</a>
+                <a class="btn btn--ghost" href="/saves">管理冒险</a>
+              </div>
+            </div>
+          </section>
+
+          <section id="panel-system" role="tabpanel" aria-labelledby="panel-tab-label-system" class="panel-tabs__panel panel-tabs__panel--system">
+            <details class="advanced system-tools" data-system-tools open>
+              <summary>系统与高级工具</summary>
+              <form
+                class="form"
+                hx-post="/cheats/save"
+                hx-target="#cheat-save-result"
+                hx-swap="innerHTML"
+                hx-indicator="#cheat-saving"
+              >
+                <input type="hidden" name="session_id" value="{{ session_id }}" />
+                <label class="label row" style="margin-top: 0; align-items: center;">
+                  <input type="checkbox" name="enabled" value="1" {% if cheat_enabled %}checked{% endif %} />
+                  启用金手指控制 prompt
+                </label>
+                <label class="label">
+                  控制 prompt（仅当前会话生效）
+                  <textarea
+                    class="input textarea"
+                    name="cheat_prompt"
+                    placeholder="例如：允许玩家在剧情关键节点触发一次‘命运改写’，并优先提供非致死解法。"
+                  >{{ cheat_prompt }}</textarea>
+                </label>
+                <div class="row">
+                  <button class="btn" type="submit">保存金手指设置</button>
+                  <span id="cheat-saving" class="htmx-indicator spinner" role="status" aria-live="polite">保存中…</span>
+                </div>
+                <div id="cheat-save-result" role="status" aria-live="polite"></div>
+              </form>
+            </details>
+          </section>
+        </div>
       </div>
     </aside>
   </div>
 {% endblock %}
-

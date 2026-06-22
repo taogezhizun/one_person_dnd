@@ -3,8 +3,12 @@
 {% block title %}存档 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>存档</h1>
-  <p><a class="btn" href="/game">进入当前会话</a></p>
+  <div class="page-title-row">
+    <h1 class="page-title-row__title">存档</h1>
+    <div class="page-actions">
+      <a class="btn" href="/game">进入当前会话</a>
+    </div>
+  </div>
 
   <div class="grid">
     <section class="card">
@@ -20,41 +24,36 @@
         </div>
       </form>
 
-      <div class="card" style="margin-top: 12px;">
+      <div class="section-block">
         <div class="card__title">战役列表</div>
         {% if campaigns %}
-          <table class="table">
-            <thead>
-              <tr><th>ID</th><th>名称</th><th>创建时间</th><th></th></tr>
-            </thead>
-            <tbody>
-              {% for c in campaigns %}
-                <tr>
-                  <td>{{ c.id }}</td>
-                  <td>
+          <div class="campaign-list">
+            {% for c in campaigns %}
+              <article class="campaign-card {% if c.id == current_campaign_id %}campaign-card--active{% endif %}">
+                <div class="campaign-card__head">
+                  <div class="campaign-card__title">
+                    #{{ c.id }} {{ c.name }}
                     {% if c.id == current_campaign_id %}
-                      <strong>{{ c.name }}</strong> <span class="muted">（当前）</span>
-                    {% else %}
-                      {{ c.name }}
+                      <span class="muted">（当前）</span>
                     {% endif %}
-                  </td>
-                  <td class="muted">{{ c.created_at }}</td>
-                  <td>
-                    {% if c.id != current_campaign_id %}
-                      <form method="post" action="/saves/campaign/select">
-                        <input type="hidden" name="campaign_id" value="{{ c.id }}" />
-                        <button class="btn btn--ghost" type="submit">设为当前</button>
-                      </form>
-                    {% endif %}
-                    <form method="post" action="/saves/campaign/enter" style="margin-top: 6px;">
+                  </div>
+                  <div class="muted">{{ c.created_at }}</div>
+                </div>
+                <div class="row">
+                  {% if c.id != current_campaign_id %}
+                    <form method="post" action="/saves/campaign/select">
                       <input type="hidden" name="campaign_id" value="{{ c.id }}" />
-                      <button class="btn" type="submit">进入</button>
+                      <button class="btn btn--ghost" type="submit">设为当前</button>
                     </form>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+                  {% endif %}
+                  <form method="post" action="/saves/campaign/enter">
+                    <input type="hidden" name="campaign_id" value="{{ c.id }}" />
+                    <button class="btn" type="submit">进入</button>
+                  </form>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
         {% else %}
           <div class="muted">暂无战役。</div>
         {% endif %}
@@ -79,41 +78,80 @@
         </div>
       </form>
 
-      <div class="card" style="margin-top: 12px;">
+      <div class="section-block">
         <div class="card__title">会话列表</div>
         {% if sessions %}
-          <table class="table">
-            <thead>
-              <tr><th>ID</th><th>标题</th><th>场景</th><th></th></tr>
-            </thead>
-            <tbody>
-              {% for s in sessions %}
-                <tr>
-                  <td>{{ s.id }}</td>
-                  <td>
+          <div class="session-grid">
+            {% for s in sessions %}
+              <article class="session-card {% if s.id == current_session_id %}session-card--active{% endif %}">
+                <div class="session-card__head">
+                  <div class="session-card__title">
+                    #{{ s.id }} {{ s.title }}
                     {% if s.id == current_session_id %}
-                      <strong>{{ s.title }}</strong> <span class="muted">（当前）</span>
-                    {% else %}
-                      {{ s.title }}
+                      <span class="muted">（当前）</span>
                     {% endif %}
-                  </td>
-                  <td class="muted">{{ s.current_scene }}</td>
-                  <td>
-                    {% if s.id != current_session_id %}
-                      <form method="post" action="/saves/session/select">
-                        <input type="hidden" name="session_id" value="{{ s.id }}" />
-                        <button class="btn btn--ghost" type="submit">设为当前</button>
-                      </form>
-                    {% endif %}
-                    <form method="post" action="/saves/session/enter" style="margin-top: 6px;">
+                  </div>
+                  <div class="muted">状态：{{ s.status or "active" }}</div>
+                </div>
+
+                <div class="muted">场景：{{ s.current_scene or "（未设置）" }}</div>
+                <div class="muted">最近活跃：{{ s.last_played_at or s.created_at }}</div>
+                <div class="muted">快照数：{{ s.snapshot_count or 0 }}</div>
+
+                <div class="row">
+                  {% if s.id != current_session_id %}
+                    <form method="post" action="/saves/session/select">
                       <input type="hidden" name="session_id" value="{{ s.id }}" />
-                      <button class="btn" type="submit">进入</button>
+                      <button class="btn btn--ghost" type="submit">设为当前</button>
                     </form>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+                  {% endif %}
+                  <form method="post" action="/saves/session/enter">
+                    <input type="hidden" name="session_id" value="{{ s.id }}" />
+                    <button class="btn" type="submit">进入</button>
+                  </form>
+                </div>
+
+                <details class="advanced" style="margin-top: 8px;">
+                  <summary>快照与分叉</summary>
+                  <form method="post" action="/saves/session/snapshot">
+                    <input type="hidden" name="session_id" value="{{ s.id }}" />
+                    <label class="label">
+                      快照名称
+                      <input class="input" name="snapshot_name" placeholder="例如：Boss 战前" />
+                    </label>
+                    <button class="btn btn--ghost" type="submit">创建快照</button>
+                  </form>
+
+                  {% set snaps = snapshots_map.get(s.id, []) %}
+                  {% if snaps and snaps|length > 0 %}
+                    <div class="snapshot-stack">
+                      <div class="card__title">最近快照（{{ snaps|length }}）</div>
+                      {% for sp in snaps %}
+                        <div class="snapshot-card">
+                          <div class="muted">#{{ sp.id }} {{ sp.snapshot_name }} · turn {{ sp.turn_index }} · {{ sp.created_at }}</div>
+                          <div class="row snapshot-card__actions">
+                            <form method="post" action="/saves/session/restore">
+                              <input type="hidden" name="session_id" value="{{ s.id }}" />
+                              <input type="hidden" name="snapshot_id" value="{{ sp.id }}" />
+                              <button class="btn btn--ghost" type="submit">恢复到此快照</button>
+                            </form>
+                            <form method="post" action="/saves/session/fork" class="inline-form">
+                              <input type="hidden" name="session_id" value="{{ s.id }}" />
+                              <input type="hidden" name="snapshot_id" value="{{ sp.id }}" />
+                              <input class="input input--compact" name="fork_title" placeholder="分叉会话标题（可选）" />
+                              <button class="btn btn--ghost" type="submit">从此快照分叉</button>
+                            </form>
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <div class="muted" style="margin-top: 8px;">暂无快照。</div>
+                  {% endif %}
+                </details>
+              </article>
+            {% endfor %}
+          </div>
         {% else %}
           <div class="muted">暂无会话。</div>
         {% endif %}
@@ -121,4 +159,3 @@
     </aside>
   </div>
 {% endblock %}
-
