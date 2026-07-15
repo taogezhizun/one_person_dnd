@@ -1,171 +1,178 @@
 {% extends "base.html" %}
 
-{% block title %}模型管理 - one_person_dnd{% endblock %}
+{% block title %}DM 模型 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>模型管理</h1>
-  <div class="muted">保存模型后可测试连通性并设为当前 DM。首次进入会自动从 api_config.ini 导入“默认配置”（如果存在）。</div>
-
-  <section class="card model-quickstart">
-    <div class="model-quickstart__head">
-      <div>
-        <div class="card__title">DeepSeek 快速配置</div>
-        <div class="muted">使用 deepseek-chat，填入 API Key 后即可保存。</div>
-      </div>
-      <div class="model-quickstart__meta">
-        <span>deepseek-chat</span>
-        <span>api.deepseek.com</span>
-      </div>
+  <div class="page-title-row">
+    <div>
+      <div class="page-hero__eyebrow">DM 的连接方式</div>
+      <h1 class="page-title-row__title">模型</h1>
     </div>
-    <form class="form model-quickstart__form" method="post" action="/models/create">
-      <input type="hidden" name="provider" value="deepseek" />
-      <input type="hidden" name="base_url" value="https://api.deepseek.com/v1" />
-      <input type="hidden" name="model" value="deepseek-chat" />
-      <input type="hidden" name="timeout_seconds" value="60.0" />
-      <div class="model-quickstart__grid">
-        <label class="label">
-          名称
-          <input class="input" name="name" required value="DeepSeek Chat" />
-        </label>
-        <label class="label">
-          API Key
-          <input class="input" type="password" name="api_key" required placeholder="sk-..." />
-        </label>
-      </div>
-      <div class="row model-quickstart__actions">
-        <button class="btn" type="submit">保存 DeepSeek 配置</button>
-      </div>
-    </form>
-  </section>
+    <div class="page-actions"><a class="btn btn--ghost" href="/game">回到游玩</a></div>
+  </div>
 
-  <section class="card model-custom-card">
-    <details class="advanced model-custom">
-      <summary>自定义 OpenAI-compatible 配置</summary>
-      <form class="form model-custom__form" method="post" action="/models/create">
-        <label class="label">
-          名称
-          <input class="input" name="name" required placeholder="例如：本地Ollama / OpenAI 兼容端点" />
-        </label>
-        <label class="label">
-          Provider
-          <select class="input" name="provider" data-provider-select>
-            {% for preset in provider_presets %}
-              <option
-                value="{{ preset.id }}"
-                data-base-url="{{ preset.base_url }}"
-                data-default-model="{{ preset.default_model }}"
-              >{{ preset.label }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="label">
-          Base URL（建议填到 /v1，不要填 /chat/completions）
-          <input class="input" name="base_url" required placeholder="http://localhost:11434/v1 或 https://api.example.com/v1" />
-        </label>
-        <label class="label">
-          Model
-          <input class="input" name="model" required placeholder="例如：gpt-4o-mini / llama3" />
-        </label>
-        <label class="label">
-          API Key（可留空）
-          <input class="input" name="api_key" placeholder="可留空" />
-        </label>
-        <label class="label">
-          Timeout Seconds
-          <input class="input" type="number" step="0.1" name="timeout_seconds" value="60.0" />
-        </label>
-        <button class="btn" type="submit">保存自定义配置</button>
-      </form>
-    </details>
-  </section>
+  <section class="card management-section model-profiles">
+    <div class="management-section__head">
+      <div>
+        <div class="card__title">已有模型</div>
+        <div class="muted">当前模型会负责生成叙事、行动建议和世界内容。</div>
+      </div>
+      <span class="count-badge">{{ profiles|length }}</span>
+    </div>
 
-  <section class="card model-profiles">
-    <div class="card__title">已有配置</div>
-    {% if profiles and profiles|length > 0 %}
-      <table class="table">
-        <thead>
-          <tr>
-            <th>激活</th>
-            <th>名称</th>
-            <th>Provider</th>
-            <th>Base URL</th>
-            <th>Model</th>
-            <th>Timeout</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in profiles %}
-            <tr>
-              <td>{% if active_id and p.id == active_id %}<span class="muted">✔</span>{% endif %}</td>
-              <td>{{ p.name }}</td>
-              <td class="muted">{{ p.provider }}</td>
-              <td class="muted">{{ p.base_url }}</td>
-              <td class="muted">{{ p.model }}</td>
-              <td class="muted">{{ p.timeout_seconds }}</td>
-              <td>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                  <form method="post" action="/models/set_active">
-                    <input type="hidden" name="profile_id" value="{{ p.id }}" />
-                    <button class="btn btn--ghost" type="submit">设为当前</button>
-                  </form>
-                  <form
-                    hx-post="/models/test"
-                    hx-target="#test-result-{{ p.id }}"
-                    hx-swap="innerHTML"
-                    hx-indicator="#test-loading-{{ p.id }}"
-                  >
-                    <input type="hidden" name="profile_id" value="{{ p.id }}" />
-                    <button class="btn btn--ghost" type="submit">测试</button>
-                    <span id="test-loading-{{ p.id }}" class="htmx-indicator spinner">测试中…</span>
-                  </form>
-                  <form method="post" action="/models/delete" onsubmit="return confirm('确定删除该配置吗？');">
-                    <input type="hidden" name="profile_id" value="{{ p.id }}" />
-                    <button class="btn btn--ghost" type="submit">删除</button>
-                  </form>
+    {% if profiles %}
+      <div class="model-profile-library">
+        {% for profile in profiles %}
+          <article class="model-profile-card {% if active_id and profile.id == active_id %}model-profile-card--active{% endif %}">
+            <div class="model-profile-card__head">
+              <div>
+                <div class="model-profile-card__title">{{ profile.name }}</div>
+                <div class="muted">{{ profile.model }}</div>
+              </div>
+              {% if active_id and profile.id == active_id %}<span class="active-badge">当前 DM</span>{% endif %}
+            </div>
+
+            <div class="model-profile-actions">
+              {% if not active_id or profile.id != active_id %}
+                <form method="post" action="/models/set_active">
+                  <input type="hidden" name="profile_id" value="{{ profile.id }}" />
+                  <button class="btn" type="submit">用于当前 DM</button>
+                </form>
+              {% endif %}
+              <form
+                hx-post="/models/test"
+                hx-target="#test-result-{{ profile.id }}"
+                hx-swap="innerHTML"
+                hx-indicator="#test-loading-{{ profile.id }}"
+              >
+                <input type="hidden" name="profile_id" value="{{ profile.id }}" />
+                <button class="btn btn--ghost" type="submit">测试连接</button>
+                <span id="test-loading-{{ profile.id }}" class="htmx-indicator spinner" role="status" aria-live="polite">测试中……</span>
+              </form>
+            </div>
+            <div id="test-result-{{ profile.id }}" role="status" aria-live="polite"></div>
+
+            <details class="advanced model-profile-edit">
+              <summary>编辑与技术信息</summary>
+              <form class="form" method="post" action="/models/update">
+                <input type="hidden" name="profile_id" value="{{ profile.id }}" />
+                <div class="field-grid field-grid--two">
+                  <label class="label" for="profile-name-{{ profile.id }}">
+                    显示名称
+                    <input id="profile-name-{{ profile.id }}" class="input" name="name" value="{{ profile.name }}" required autocomplete="off" />
+                  </label>
+                  <label class="label" for="profile-provider-{{ profile.id }}">
+                    服务类型（Provider）
+                    <input id="profile-provider-{{ profile.id }}" class="input" name="provider" value="{{ profile.provider }}" autocomplete="off" spellcheck="false" />
+                  </label>
                 </div>
-                <div id="test-result-{{ p.id }}"></div>
-
-                <details class="advanced" style="margin-top:10px;">
-                  <summary>编辑</summary>
-                  <form class="form" method="post" action="/models/update">
-                    <input type="hidden" name="profile_id" value="{{ p.id }}" />
-                    <label class="label">
-                      名称
-                      <input class="input" name="name" value="{{ p.name }}" required />
-                    </label>
-                    <label class="label">
-                      Provider
-                      <input class="input" name="provider" value="{{ p.provider }}" />
-                    </label>
-                    <label class="label">
-                      Base URL
-                      <input class="input" name="base_url" value="{{ p.base_url }}" required />
-                    </label>
-                    <label class="label">
-                      Model
-                      <input class="input" name="model" value="{{ p.model }}" required />
-                    </label>
-                    <label class="label">
-                      API Key（留空则保持原 Key）
-                      <input class="input" type="password" name="api_key" placeholder="留空则保持原 Key" />
-                    </label>
-                    <label class="label">
-                      Timeout Seconds
-                      <input class="input" type="number" step="0.1" name="timeout_seconds" value="{{ p.timeout_seconds }}" />
-                    </label>
-                    <button class="btn" type="submit">保存修改</button>
-                  </form>
-                </details>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                <label class="label" for="profile-base-url-{{ profile.id }}">
+                  接口地址（Base URL）
+                  <input id="profile-base-url-{{ profile.id }}" class="input" type="url" name="base_url" value="{{ profile.base_url }}" required autocomplete="url" spellcheck="false" />
+                </label>
+                <label class="label" for="profile-model-{{ profile.id }}">
+                  模型标识（Model）
+                  <input id="profile-model-{{ profile.id }}" class="input" name="model" value="{{ profile.model }}" required autocomplete="off" spellcheck="false" />
+                </label>
+                <div class="field-grid field-grid--two">
+                  <label class="label" for="profile-api-key-{{ profile.id }}">
+                    访问密钥（留空则保持原值）
+                    <input id="profile-api-key-{{ profile.id }}" class="input" type="password" name="api_key" autocomplete="new-password" spellcheck="false" placeholder="留空则保持原密钥" />
+                  </label>
+                  <label class="label" for="profile-timeout-{{ profile.id }}">
+                    响应等待上限（秒）
+                    <input id="profile-timeout-{{ profile.id }}" class="input" type="number" step="0.1" name="timeout_seconds" value="{{ profile.timeout_seconds }}" autocomplete="off" />
+                  </label>
+                </div>
+                <div class="model-edit-actions">
+                  <button class="btn" type="submit">保存修改</button>
+                </div>
+              </form>
+              <form method="post" action="/models/delete" data-confirm-message="确认删除“{{ profile.name }}”吗？此操作不会删除冒险存档。">
+                <input type="hidden" name="profile_id" value="{{ profile.id }}" />
+                <button class="btn btn--danger-ghost" type="submit">删除这个模型</button>
+              </form>
+              <div class="muted technical-footnote">配置编号：{{ profile.id }}</div>
+            </details>
+          </article>
+        {% endfor %}
+      </div>
     {% else %}
-      <div class="muted">（暂无配置）</div>
+      <div class="empty-state">
+        <strong>还没有可用模型。</strong>
+        <div class="muted">展开下方“添加模型”，最快可以从 DeepSeek 开始。</div>
+      </div>
     {% endif %}
   </section>
+
+  <details class="card model-add-section" {% if not profiles %}open{% endif %}>
+    <summary>添加模型</summary>
+    <div class="model-add-section__body">
+      <section class="model-quickstart">
+        <div class="model-quickstart__head">
+          <div>
+            <div class="card__title">DeepSeek 快速开始</div>
+            <div class="muted">只需填写访问密钥，其他连接参数已经准备好。</div>
+          </div>
+          <div class="model-quickstart__meta"><span>推荐入门</span><span>deepseek-chat</span></div>
+        </div>
+        <form class="form model-quickstart__form" method="post" action="/models/create">
+          <input type="hidden" name="provider" value="deepseek" />
+          <input type="hidden" name="base_url" value="https://api.deepseek.com/v1" />
+          <input type="hidden" name="model" value="deepseek-chat" />
+          <input type="hidden" name="timeout_seconds" value="60.0" />
+          <div class="model-quickstart__grid">
+            <label class="label" for="deepseek-profile-name">
+              显示名称
+              <input id="deepseek-profile-name" class="input" name="name" required value="DeepSeek Chat" autocomplete="off" />
+            </label>
+            <label class="label" for="deepseek-api-key">
+              访问密钥
+              <input id="deepseek-api-key" class="input" type="password" name="api_key" required autocomplete="new-password" spellcheck="false" placeholder="sk-…" />
+            </label>
+          </div>
+          <button class="btn" type="submit">保存 DeepSeek</button>
+        </form>
+      </section>
+
+      <details class="advanced model-custom">
+        <summary>连接其他兼容服务</summary>
+        <form class="form model-custom__form" method="post" action="/models/create">
+          <label class="label" for="custom-profile-name">
+            显示名称
+            <input id="custom-profile-name" class="input" name="name" required autocomplete="off" placeholder="例如：本地模型" />
+          </label>
+          <label class="label" for="custom-provider">
+            服务类型（Provider）
+            <select id="custom-provider" class="input" name="provider" autocomplete="off" data-provider-select>
+              {% for preset in provider_presets %}
+                <option value="{{ preset.id }}" data-base-url="{{ preset.base_url }}" data-default-model="{{ preset.default_model }}">{{ preset.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="label" for="custom-base-url">
+            接口地址（Base URL，通常以 /v1 结尾）
+            <input id="custom-base-url" class="input" type="url" name="base_url" required autocomplete="url" spellcheck="false" placeholder="http://localhost:11434/v1" />
+          </label>
+          <label class="label" for="custom-model">
+            模型标识（Model）
+            <input id="custom-model" class="input" name="model" required autocomplete="off" spellcheck="false" placeholder="例如：gpt-4o-mini / llama3" />
+          </label>
+          <div class="field-grid field-grid--two">
+            <label class="label" for="custom-api-key">
+              访问密钥（可留空）
+              <input id="custom-api-key" class="input" type="password" name="api_key" autocomplete="new-password" spellcheck="false" placeholder="本地服务通常可留空" />
+            </label>
+            <label class="label" for="custom-timeout">
+              响应等待上限（秒）
+              <input id="custom-timeout" class="input" type="number" step="0.1" name="timeout_seconds" value="60.0" autocomplete="off" />
+            </label>
+          </div>
+          <button class="btn" type="submit">保存自定义模型</button>
+        </form>
+      </details>
+    </div>
+  </details>
 
   <script>
     (function () {
@@ -175,10 +182,10 @@
         const baseUrl = form.querySelector("[name=base_url]");
         const model = form.querySelector("[name=model]");
         function applyPreset() {
-          const opt = select.options[select.selectedIndex];
-          if (!opt) return;
-          const nextBase = opt.getAttribute("data-base-url") || "";
-          const nextModel = opt.getAttribute("data-default-model") || "";
+          const option = select.options[select.selectedIndex];
+          if (!option) return;
+          const nextBase = option.getAttribute("data-base-url") || "";
+          const nextModel = option.getAttribute("data-default-model") || "";
           if (baseUrl && nextBase && !baseUrl.value.trim()) baseUrl.value = nextBase;
           if (model && nextModel && !model.value.trim()) model.value = nextModel;
         }

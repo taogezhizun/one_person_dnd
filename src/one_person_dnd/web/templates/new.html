@@ -1,15 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}新冒险向导 - one_person_dnd{% endblock %}
+{% block title %}创建新冒险 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>新冒险向导</h1>
-  <div class="muted">一键生成世界观（WorldBible）+ 角色卡（JSON），预览后再决定是否采用。</div>
+  {% set values = form_values %}
+  <header class="page-hero page-hero--compact">
+    <div class="page-hero__eyebrow">从一张空白地图开始</div>
+    <h1>创建新冒险</h1>
+    <p class="page-hero__lede">说出你想玩的故事，或让模型先给你一套可修改的灵感。确认前不会改动现有冒险。</p>
+  </header>
 
   {% if not llm_ready %}
-    <div class="notice notice--err" style="margin-top:12px;">
-      <div style="font-weight:700;">LLM 未配置</div>
-      <div class="muted">请先在 <a href="/models">模型</a> 页面选择或创建一个可用的模型配置。</div>
+    <div class="notice notice--err notice--spaced" role="status">
+      <div class="notice__title">模型尚未就绪</div>
+      <div class="muted">先选择一个可用模型，回来后再生成冒险。</div>
       <div class="new-adventure__notice-actions">
         <a class="btn btn--ghost" href="/models">去配置模型</a>
       </div>
@@ -17,51 +21,111 @@
   {% endif %}
 
   {% if error %}
-    <div class="notice notice--err" style="margin-top:12px;">
-      <div style="font-weight:700;">生成失败</div>
+    <div class="notice notice--err notice--spaced" role="alert">
+      <div class="notice__title">这次没有生成成功</div>
       <div class="muted">{{ error }}</div>
     </div>
   {% endif %}
 
-  <section class="card" style="margin-top: 12px;">
-    <div class="card__title">生成参数</div>
-    <form class="form" method="post" action="/new/generate" data-long-submit>
-      <div class="row">
-        <label class="label" style="flex: 1;">
-          风格
-          <input class="input" name="genre" value="奇幻" />
+  <div class="new-adventure-layout">
+    <section class="card new-adventure-form-card">
+      <div class="card__title">你的冒险构想</div>
+      <form class="form" method="post" action="/new/generate" data-long-submit>
+        <label class="label" for="adventure-brief">
+          先说说你想玩什么
         </label>
-        <label class="label" style="flex: 1;">
-          基调
-          <input class="input" name="tone" value="冒险" />
-        </label>
-        <label class="label" style="flex: 1;">
-          科技水平
-          <input class="input" name="tech_level" value="中世纪" />
-        </label>
-      </div>
-      <label class="label">
-        主题（逗号分隔）
-        <input class="input" name="themes" value="探索,谜团" />
-      </label>
-      <label class="label">
-        角色数量（1-4）
-        <input class="input" type="number" name="character_count" value="1" min="1" max="4" />
-      </label>
-      <label class="label">
-        额外约束（可选）
-        <textarea class="input textarea" name="extra_constraints" placeholder="例如：世界里禁止复活法术；主角必须是半精灵游侠；开局在雪国小镇..."></textarea>
-      </label>
-      <div class="row">
-        <button
-          class="btn"
-          type="submit"
-          data-long-submit-button
-          data-long-submit-label="生成中…"
-          {% if not llm_ready %}disabled{% endif %}
-        >一键生成</button>
-        <span class="form-status spinner" data-long-submit-status hidden>正在生成冒险…</span>
-      </div>
-    </form>
-  </section>
+        <textarea
+          id="adventure-brief"
+          class="input textarea textarea--brief"
+          name="adventure_brief"
+          autocomplete="off"
+          placeholder="例如：我想扮演一名失去记忆的守灯人，在被潮汐吞没的群岛追查一艘幽灵船……"
+        >{{ values.adventure_brief }}</textarea>
+
+        {% if proposal is defined and proposal %}
+          <section class="proposal-sheet" aria-labelledby="proposal-title">
+            <div class="proposal-sheet__eyebrow">模型给出的可编辑提案</div>
+            <div id="proposal-title" class="proposal-sheet__title">在生成完整设定前，再改一次方向</div>
+            <div class="field-grid field-grid--two">
+              <label class="label" for="proposed-adventure-name">
+                冒险名称
+                <input id="proposed-adventure-name" class="input" name="proposed_adventure_name" value="{{ proposal.adventure_name }}" autocomplete="off" />
+              </label>
+              <label class="label" for="proposed-chapter-title">
+                第一章标题
+                <input id="proposed-chapter-title" class="input" name="proposed_chapter_title" value="{{ proposal.chapter_title }}" autocomplete="off" />
+              </label>
+            </div>
+          </section>
+        {% else %}
+          <input type="hidden" name="proposed_adventure_name" value="" />
+          <input type="hidden" name="proposed_chapter_title" value="" />
+        {% endif %}
+
+        <details class="advanced new-adventure-options" {% if proposal is defined and proposal %}open{% endif %}>
+          <summary>调整故事偏好</summary>
+          <div class="form advanced__body">
+            <div class="field-grid field-grid--three">
+              <label class="label" for="adventure-genre">
+                故事风格
+                <input id="adventure-genre" class="input" name="genre" value="{{ values.genre }}" autocomplete="off" />
+              </label>
+              <label class="label" for="adventure-tone">
+                故事基调
+                <input id="adventure-tone" class="input" name="tone" value="{{ values.tone }}" autocomplete="off" />
+              </label>
+              <label class="label" for="adventure-tech-level">
+                时代与科技
+                <input id="adventure-tech-level" class="input" name="tech_level" value="{{ values.tech_level }}" autocomplete="off" />
+              </label>
+            </div>
+            <div class="field-grid field-grid--two">
+              <label class="label" for="adventure-themes">
+                想探索的主题
+                <input id="adventure-themes" class="input" name="themes" value="{{ values.themes }}" autocomplete="off" />
+              </label>
+              <label class="label" for="adventure-character-count">
+                同行角色数量
+                <input id="adventure-character-count" class="input" type="number" name="character_count" value="{{ values.character_count }}" min="1" max="4" autocomplete="off" />
+              </label>
+            </div>
+            <label class="label" for="adventure-constraints">
+              必须遵守的设定
+              <textarea id="adventure-constraints" class="input textarea" name="extra_constraints" autocomplete="off" placeholder="例如：世界里不能复活；主角必须是半精灵游侠；开局在雪国小镇……">{{ values.extra_constraints }}</textarea>
+            </label>
+          </div>
+        </details>
+
+        <div class="new-adventure-actions">
+          <button
+            class="btn"
+            type="submit"
+            data-long-submit-button
+            data-long-submit-label="正在铺开世界……"
+            {% if not llm_ready %}disabled{% endif %}
+          >生成完整冒险</button>
+          <button
+            class="btn btn--ghost"
+            type="submit"
+            formaction="/new/propose"
+            data-long-submit-button
+            data-long-submit-label="正在构思……"
+            {% if not llm_ready %}disabled{% endif %}
+          >帮我想一套</button>
+          <span class="form-status spinner" data-long-submit-status role="status" aria-live="polite" hidden>模型正在构思，请稍候……</span>
+        </div>
+      </form>
+    </section>
+
+    <aside class="new-adventure-assurance" aria-label="创建说明">
+      <div class="new-adventure-assurance__mark" aria-hidden="true">Ⅰ</div>
+      <h2>一份独立的新存档</h2>
+      <p>模型会先生成世界设定、角色与开场。你确认采用后，系统才会创建一个新的冒险和第一章。</p>
+      <ul class="plain-list">
+        <li>现有冒险保持原样</li>
+        <li>生成结果先以易读方式预览</li>
+        <li>名称和第一章标题可再次修改</li>
+      </ul>
+    </aside>
+  </div>
 {% endblock %}

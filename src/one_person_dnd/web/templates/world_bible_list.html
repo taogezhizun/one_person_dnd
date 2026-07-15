@@ -3,39 +3,62 @@
 {% block title %}世界设定 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>世界设定（WorldBible）</h1>
-  <div class="row" style="justify-content: space-between; align-items: center;">
-    <div class="muted">Campaign：{{ campaign_id }}</div>
-    <a class="btn" href="/memory/world/new">新建设定条目</a>
+  {% set type_labels = {"Rule": "规则", "Location": "地点", "NPC": "人物", "Organization": "势力"} %}
+  <div class="page-title-row">
+    <div>
+      <div class="page-hero__eyebrow">{{ campaign_name or "当前冒险" }}</div>
+      <h1 class="page-title-row__title">世界设定</h1>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn--ghost" href="/game">回到游玩</a>
+    </div>
   </div>
 
-  <div class="card">
-    <div class="card__title">条目列表</div>
+  <section class="card management-section">
+    <div class="management-section__head">
+      <div>
+        <div class="card__title">已经写下的规则、地点、人物与势力</div>
+        <div class="muted">DM 会在相关场景中自动参考这些内容。</div>
+      </div>
+      <span class="count-badge">{{ entries|length }}</span>
+    </div>
+
     {% if entries %}
-      <table class="table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>类型</th>
-            <th>标题</th>
-            <th>标签</th>
-            <th>更新时间</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for e in entries %}
-            <tr>
-              <td>{{ e.id }}</td>
-              <td>{{ e.type }}</td>
-              <td>{{ e.title }}</td>
-              <td class="muted">{{ e.tags }}</td>
-              <td class="muted">{{ e.updated_at }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="world-library">
+        {% for entry in entries %}
+          <article class="world-library-card">
+            <div class="world-library-card__head">
+              <span class="world-library-card__type">{{ type_labels.get(entry.type, entry.type or "设定") }}</span>
+              <span class="muted">更新于 {{ entry.updated_at }}</span>
+            </div>
+            <h2>{{ entry.title }}</h2>
+            {% if entry.content_preview %}<p>{{ entry.content_preview }}</p>{% endif %}
+            {% if entry.tags %}<div class="tag-line">{{ entry.tags }}</div>{% endif %}
+            <details class="advanced advanced--compact">
+              <summary>技术信息</summary>
+              <div class="muted">条目编号：{{ entry.id }} · 类型：{{ entry.type }}</div>
+            </details>
+          </article>
+        {% endfor %}
+      </div>
     {% else %}
-      <div class="muted">还没有设定条目。</div>
+      <div class="empty-state">
+        <strong>这个世界还是一张白纸。</strong>
+        <div class="muted">先写一条最重要的规则、地点或人物，DM 就有了可依循的锚点。</div>
+      </div>
     {% endif %}
-  </div>
+
+    <details class="advanced management-create">
+      <summary>添加一条世界设定</summary>
+      <div class="management-create__body">
+        <p class="muted">可从地点、人物、势力或硬规则模板开始，也可以自由书写。</p>
+        <a class="btn" href="/memory/world/new">打开设定编辑器</a>
+      </div>
+    </details>
+
+    <details class="advanced advanced--compact">
+      <summary>当前冒险技术信息</summary>
+      <div class="muted">冒险编号：{{ campaign_id }}</div>
+    </details>
+  </section>
 {% endblock %}

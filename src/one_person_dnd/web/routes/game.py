@@ -5,12 +5,24 @@ import logging
 import time
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from one_person_dnd.agents.pipeline import TurnPipeline
+from one_person_dnd.agents.action_judge import ActionJudgeAgent
+from one_person_dnd.agents.continuity_critic import ContinuityCriticAgent
+from one_person_dnd.agents.response_evaluator import ResponseEvaluatorAgent
 from one_person_dnd.config import AppState, load_memory_config, save_app_state
 from one_person_dnd.db import get_connection
-from one_person_dnd.db.repos import campaigns, plot_threads, session_cheats, sessions, state_change_requests, turn_logs
+from one_person_dnd.db.repos import (
+    app_settings,
+    campaigns,
+    plot_threads,
+    session_cheats,
+    sessions,
+    state_change_requests,
+    turn_logs,
+    world_bible,
+)
 from one_person_dnd.engine.dice import roll_expr
 from one_person_dnd.engine.orchestrator import ensure_dm_protocol_output
 from one_person_dnd.engine.parser import parse_dm_text
@@ -21,6 +33,29 @@ from one_person_dnd.web.routes.common import get_current_campaign_session, load_
 
 router = APIRouter()
 logger = logging.getLogger("one_person_dnd.web")
+WORLD_SETUP_SKIP_KEY_PREFIX = "world_setup_prompt_skipped.session."
+
+
+def _world_setup_skip_key(session_id: int) -> str:
+    return f"{WORLD_SETUP_SKIP_KEY_PREFIX}{session_id}"
+
+
+def _world_setup_prompt_state(
+    conn,
+    *,
+    campaign_id: int,
+    session_id: int,
+    pinned_world_notes: str,
+) -> dict:
+    has_world = world_bible.has_world_bible_entries(conn, campaign_id=campaign_id)
+    has_pinned = bool((pinned_world_notes or "").strip())
+    skipped = app_settings.get(conn, _world_setup_skip_key(session_id)) == "1"
+    return {
+        "show": not has_world and not has_pinned and not skipped,
+        "has_world_bible": has_world,
+        "has_pinned_world_notes": has_pinned,
+        "skipped": skipped,
+    }
 
 
 def _build_turn_prompt_overrides(
@@ -75,6 +110,13 @@ def game(request: Request) -> HTMLResponse:
         current_scene = s["current_scene"] if s else ""
         session_state = s["session_state"] if s and "session_state" in s.keys() else ""
         pinned_world_notes = s["pinned_world_notes"] if s and "pinned_world_notes" in s.keys() else ""
+        world_setup_prompt = _world_setup_prompt_state(
+            conn,
+            campaign_id=campaign_id,
+            session_id=session_id,
+            pinned_world_notes=pinned_world_notes or "",
+        )
+        world_bible_entries = world_bible.list_world_bible_entries(conn, campaign_id=campaign_id, limit=8)
         pending_count = len(state_change_requests.list_pending(conn, session_id=session_id, limit=200))
         open_threads = plot_threads.list_open_threads(conn, session_id=session_id, limit=6)
         cheat_cfg = session_cheats.get_cheat(conn, session_id=session_id) or {}
@@ -83,8 +125,20 @@ def game(request: Request) -> HTMLResponse:
 
         rows = turn_logs.list_turn_logs(conn, session_id=session_id, limit=50)
         turns = []
+        action_judge = ActionJudgeAgent()
+        continuity_critic = ContinuityCriticAgent()
+        response_evaluator = ResponseEvaluatorAgent()
         for r in rows[::-1]:
-            dm = parse_dm_text((r.get("dm_text") or "").strip())
+            dm_raw = (r.get("dm_text") or "").strip()
+            dm = parse_dm_text(dm_raw)
+            player_text = r.get("player_text") or ""
+            action_assessment = action_judge.run(
+                PlayerAction(
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    text=player_text,
+                )
+            )
             dice_events_raw = (r.get("dice_events") or "").strip()
             dice_events: list[dict] = []
             if dice_events_raw:
@@ -97,9 +151,12 @@ def game(request: Request) -> HTMLResponse:
             turns.append(
                 {
                     "turn_index": int(r["turn_index"]),
-                    "player_text": (r.get("player_text") or ""),
+                    "player_text": player_text,
                     "dm": dm,
                     "dice_events": dice_events,
+                    "action_assessment": _serialize_action_assessment(action_assessment),
+                    "critic_warnings": list(continuity_critic.run(dm_raw).warnings),
+                    "response_warnings": list(response_evaluator.run(dm).warnings),
                     "created_at": (r.get("created_at") or ""),
                 }
             )
@@ -117,6 +174,8 @@ def game(request: Request) -> HTMLResponse:
             "current_scene": current_scene,
             "session_state": session_state or "",
             "pinned_world_notes": pinned_world_notes or "",
+            "world_setup_prompt": world_setup_prompt,
+            "world_bible_entries": world_bible_entries,
             "sessions_list": sessions_list,
             "pending_count": pending_count,
             "open_threads": open_threads,
@@ -126,6 +185,24 @@ def game(request: Request) -> HTMLResponse:
             "turns": turns,
         },
     )
+
+
+@router.post("/game/world-setup/skip")
+def game_world_setup_skip(
+    campaign_id: int = Form(...),
+    session_id: int = Form(...),
+) -> RedirectResponse:
+    paths = ensure_app_dirs()
+    save_app_state(paths.config_path, AppState(active_campaign_id=campaign_id, active_session_id=session_id))
+
+    conn = get_connection(paths.db_path)
+    try:
+        app_settings.set(conn, _world_setup_skip_key(session_id), "1")
+        conn.commit()
+    finally:
+        conn.close()
+
+    return RedirectResponse(url="/game", status_code=303)
 
 
 @router.post("/game/turn", response_class=HTMLResponse)

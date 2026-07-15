@@ -1,65 +1,107 @@
 {% extends "base.html" %}
 
-{% block title %}预览 - 新冒险向导{% endblock %}
+{% block title %}采用前预览 - one_person_dnd{% endblock %}
 
 {% block content %}
   {% set world_entries = preview_obj.world_bible_entries or [] %}
   {% set character_sheet = preview_obj.character_sheet or {} %}
   {% set party = character_sheet.get("party") or [] %}
-  <h1>预览生成结果</h1>
-  <div class="muted">确认后将写入：WorldBible（当前战役）+ 角色卡（当前会话）。</div>
+  {% set type_labels = {"Rule": "规则", "Location": "地点", "NPC": "人物", "Organization": "势力"} %}
 
-  <section class="card new-preview-summary">
-    <div class="card__title">采用前确认</div>
-    <div class="new-preview-summary__grid">
-      <div class="status-tile">
-        <div class="status-tile__label">WorldBible 条目</div>
-        <div class="status-tile__value">{{ world_entries|length }}</div>
+  <header class="page-hero page-hero--compact">
+    <div class="page-hero__eyebrow">采用前预览</div>
+    <h1>{{ preview_obj.adventure_name }}</h1>
+    <p class="page-hero__lede">这会创建一份独立的新冒险。原有存档不会被覆盖。</p>
+  </header>
+
+  <form method="post" action="/new/apply" class="new-preview-form">
+    <textarea name="preview_json" hidden>{{ preview_json }}</textarea>
+
+    <section class="card new-preview-summary">
+      <div class="card__title">最后确认名称</div>
+      <div class="field-grid field-grid--two">
+        <label class="label" for="preview-adventure-name">
+          冒险名称
+          <input id="preview-adventure-name" class="input" name="adventure_name" value="{{ preview_obj.adventure_name }}" required autocomplete="off" />
+        </label>
+        <label class="label" for="preview-chapter-title">
+          第一章标题
+          <input id="preview-chapter-title" class="input" name="chapter_title" value="{{ preview_obj.chapter_title }}" required autocomplete="off" />
+        </label>
       </div>
-      <div class="status-tile">
-        <div class="status-tile__label">角色数量</div>
-        <div class="status-tile__value">{{ party|length }}</div>
+      <div class="new-preview-summary__grid" aria-label="生成结果概览">
+        <div class="status-tile">
+          <div class="status-tile__label">世界设定</div>
+          <div class="status-tile__value">{{ world_entries|length }} 条</div>
+        </div>
+        <div class="status-tile">
+          <div class="status-tile__label">同行角色</div>
+          <div class="status-tile__value">{{ party|length }} 名</div>
+        </div>
+        <div class="status-tile status-tile--wide">
+          <div class="status-tile__label">开场地点或局面</div>
+          <div class="status-tile__value status-tile__value--text">{{ preview_obj.opening_scene or "故事开场" }}</div>
+        </div>
       </div>
-      <div class="status-tile">
-        <div class="status-tile__label">采用后进入游戏</div>
-        <div class="status-tile__value">写入当前冒险</div>
-      </div>
+    </section>
+
+    <section class="card new-preview-section">
+      <div class="card__title">这个世界</div>
+      {% if world_entries %}
+        <div class="lore-preview-grid">
+          {% for entry in world_entries %}
+            <article class="lore-preview-card">
+              <div class="lore-preview-card__meta">{{ type_labels.get(entry.type, entry.type or "设定") }}{% if entry.tags %} · {{ entry.tags }}{% endif %}</div>
+              <h2>{{ entry.title }}</h2>
+              <p class="prose-copy">{{ entry.content }}</p>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">没有生成世界设定。你可以返回修改后重试。</div>
+      {% endif %}
+    </section>
+
+    <section class="card new-preview-section">
+      <div class="card__title">与你同行的人</div>
+      {% if party %}
+        <div class="character-preview-grid">
+          {% for character in party %}
+            <article class="character-preview-card">
+              <div class="character-preview-card__portrait" aria-hidden="true">{{ (character.name or "？")[:1] }}</div>
+              <div>
+                <h2>{{ character.name or "未命名角色" }}</h2>
+                <div class="muted">{{ character.race or "种族未定" }} · {{ character.class or "身份未定" }}</div>
+                {% if character.background %}<p>{{ character.background }}</p>{% endif %}
+                {% if character.goal %}<p><strong>目标：</strong>{{ character.goal }}</p>{% endif %}
+                <div class="character-preview-card__stats">
+                  <span>生命 {{ character.hp if character.hp is defined else "—" }}</span>
+                  <span>金币 {{ character.gold if character.gold is defined else "—" }}</span>
+                </div>
+                {% if character.inventory %}<div class="muted">随身物品：{{ character.inventory|join("、") }}</div>{% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">没有生成角色。你可以返回修改后重试。</div>
+      {% endif %}
+      {% if character_sheet.get("notes") %}
+        <div class="notice notice--spaced">
+          <div class="notice__title">开场提示</div>
+          <div>{{ character_sheet.get("notes") }}</div>
+        </div>
+      {% endif %}
+    </section>
+
+    <details class="advanced new-preview-technical">
+      <summary>查看技术数据</summary>
+      <pre class="pre">{{ preview_json }}</pre>
+    </details>
+
+    <div class="new-preview-actions">
+      <button class="btn" type="submit">创建这场冒险并开始</button>
+      <a class="btn btn--ghost" href="/new">返回修改</a>
     </div>
-  </section>
-
-  <section class="card" style="margin-top: 12px;">
-    <div class="card__title">WorldBible 条目（将新增）</div>
-    {% if world_entries and world_entries|length > 0 %}
-      <ol>
-        {% for e in world_entries %}
-          <li style="margin-top: 8px;">
-            <span class="muted">[{{ e.type }}]</span>
-            <span style="font-weight:700;">{{ e.title }}</span>
-            {% if e.tags %}<span class="muted">（{{ e.tags }}）</span>{% endif %}
-            <pre class="pre" style="margin-top:6px;">{{ e.content }}</pre>
-          </li>
-        {% endfor %}
-      </ol>
-    {% else %}
-      <div class="muted">（未生成条目）</div>
-    {% endif %}
-  </section>
-
-  <section class="card" style="margin-top: 12px;">
-    <div class="card__title">角色卡（将覆盖写入当前会话的 character_sheet）</div>
-    <pre class="pre">{{ character_sheet_json }}</pre>
-  </section>
-
-  <section class="card" style="margin-top: 12px;">
-    <div class="card__title">操作</div>
-    <div class="row">
-      <form method="post" action="/new/apply">
-        <input type="hidden" name="preview_json" value="{{ preview_json | e }}" />
-        <button class="btn" type="submit">采用并进入游戏</button>
-      </form>
-      <form method="get" action="/new">
-        <button class="btn btn--ghost" type="submit">返回修改</button>
-      </form>
-    </div>
-  </section>
+  </form>
 {% endblock %}

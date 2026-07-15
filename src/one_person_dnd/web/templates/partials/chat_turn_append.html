@@ -1,5 +1,9 @@
 {% include "partials/chat_turn.html" %}
 
+<div hx-swap-oob="afterbegin:#system-diagnostics">
+  {% include "partials/turn_diagnostics.html" %}
+</div>
+
 <div id="recall-preview" hx-swap-oob="innerHTML">
   {% if recalled_context and recalled_context|length > 0 %}
     <details class="recall-panel" open>

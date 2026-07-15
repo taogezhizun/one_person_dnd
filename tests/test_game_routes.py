@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from one_person_dnd.config import LLMConfig
-from one_person_dnd.db.repos import campaigns, plot_threads, sessions, state_change_requests
+from one_person_dnd.db.repos import app_settings, campaigns, plot_threads, sessions, state_change_requests, world_bible
 from one_person_dnd.db.schema import init_db
 from one_person_dnd.db.conn import get_connection
 from one_person_dnd.domain.actions import ActionAssessment
@@ -118,6 +118,124 @@ class TestGameRoutes(unittest.TestCase):
                 context = game.game(request=object())
 
             self.assertFalse(context["llm_configured"])
+        finally:
+            tmp.cleanup()
+
+    def test_game_page_context_prompts_for_missing_world_setup(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                context = game.game(request=object())
+
+            self.assertTrue(context["world_setup_prompt"]["show"])
+            self.assertFalse(context["world_setup_prompt"]["has_world_bible"])
+            self.assertFalse(context["world_setup_prompt"]["has_pinned_world_notes"])
+            self.assertFalse(context["world_setup_prompt"]["skipped"])
+        finally:
+            tmp.cleanup()
+
+    def test_game_page_context_hides_world_prompt_after_world_or_skip(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+        conn = get_connection(paths.db_path)
+        try:
+            world_bible.insert_world_bible_entry(
+                conn,
+                campaign_id=campaign_id,
+                type="rule",
+                title="群星法则",
+                content="魔法来自星光。",
+                tags="世界观",
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                context = game.game(request=object())
+
+            self.assertFalse(context["world_setup_prompt"]["show"])
+            self.assertTrue(context["world_setup_prompt"]["has_world_bible"])
+
+            conn = get_connection(paths.db_path)
+            try:
+                conn.execute("DELETE FROM world_bible_entries")
+                app_settings.set(conn, game._world_setup_skip_key(session_id), "1")
+                conn.commit()
+            finally:
+                conn.close()
+
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                skipped_context = game.game(request=object())
+
+            self.assertFalse(skipped_context["world_setup_prompt"]["show"])
+            self.assertTrue(skipped_context["world_setup_prompt"]["skipped"])
+        finally:
+            tmp.cleanup()
+
+    def test_game_page_context_includes_world_bible_entries(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+        conn = get_connection(paths.db_path)
+        try:
+            world_bible.insert_world_bible_entry(
+                conn,
+                campaign_id=campaign_id,
+                type="Location",
+                title="灰烬森林",
+                content="黑灰覆盖的枯死林，中央有一座藤蔓石塔。",
+                tags="森林,危险",
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                context = game.game(request=object())
+
+            self.assertEqual(context["world_bible_entries"][0]["title"], "灰烬森林")
+            self.assertEqual(context["world_bible_entries"][0]["type"], "Location")
+            self.assertIn("藤蔓石塔", context["world_bible_entries"][0]["content_preview"])
+        finally:
+            tmp.cleanup()
+
+    def test_world_setup_skip_persists_session_setting_and_redirects(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        try:
+            with patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths):
+                response = game.game_world_setup_skip(campaign_id=campaign_id, session_id=session_id)
+
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.headers["location"], "/game")
+
+            conn = get_connection(paths.db_path)
+            try:
+                value = app_settings.get(conn, game._world_setup_skip_key(session_id))
+            finally:
+                conn.close()
+            self.assertEqual(value, "1")
         finally:
             tmp.cleanup()
 

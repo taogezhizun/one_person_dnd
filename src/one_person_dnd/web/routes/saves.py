@@ -13,11 +13,42 @@ from one_person_dnd.db.repos import (
     manual_change_logs,
     session_snapshots,
     sessions,
+    story_journal,
+    turn_logs,
 )
+from one_person_dnd.domain.characters import summarize_character_sheet
+from one_person_dnd.engine.parser import parse_dm_text
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import get_current_campaign_session, load_active_llm_config, templates
 
 router = APIRouter()
+
+
+def _create_session_snapshot(
+    conn,
+    *,
+    session_id: int,
+    snapshot_name: str,
+) -> tuple[int, int] | None:
+    session_row = sessions.get_session_sidebar(conn, session_id)
+    if session_row is None:
+        return None
+    row = conn.execute(
+        "SELECT COALESCE(MAX(turn_index), -1) AS max_turn FROM turn_logs WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    turn_index = max(0, int(row["max_turn"] if row is not None else 0))
+    snapshot_id = session_snapshots.create_snapshot(
+        conn,
+        session_id=session_id,
+        snapshot_name=snapshot_name,
+        turn_index=turn_index,
+        current_scene=(session_row["current_scene"] or "").strip(),
+        session_state=(session_row["session_state"] or "").strip(),
+        pinned_world_notes=(session_row["pinned_world_notes"] or "").strip(),
+        character_sheet_json=character_sheets.get_character_sheet(conn, session_id=session_id),
+    )
+    return snapshot_id, turn_index
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -30,6 +61,22 @@ def home(request: Request) -> HTMLResponse:
     try:
         campaign_name = campaigns.get_campaign_name(conn, campaign_id) or ""
         session_title = sessions.get_session_title(conn, session_id) or ""
+        session_row = sessions.get_session_sidebar(conn, session_id)
+        current_scene = (session_row["current_scene"] or "").strip() if session_row else ""
+        current_session = next(
+            (item for item in sessions.list_sessions(conn, campaign_id) if int(item["id"]) == int(session_id)),
+            {},
+        )
+        last_played_at = current_session.get("last_played_at") or current_session.get("created_at") or ""
+        character = summarize_character_sheet(
+            character_sheets.get_character_sheet(conn, session_id=session_id)
+        )
+        recent_turns = turn_logs.list_turn_logs(conn, session_id=session_id, limit=1)
+        latest_narration = ""
+        if recent_turns:
+            latest_narration = parse_dm_text((recent_turns[0].get("dm_text") or "").strip()).narration.strip()
+        journal_entries = story_journal.list_story_journal_entries(conn, session_id=session_id, limit=1)
+        latest_story = latest_narration or (journal_entries[0].get("summary") if journal_entries else "") or ""
     finally:
         conn.close()
 
@@ -43,6 +90,10 @@ def home(request: Request) -> HTMLResponse:
             "session_id": session_id,
             "campaign_name": campaign_name,
             "session_title": session_title,
+            "current_scene": current_scene,
+            "last_played_at": last_played_at,
+            "character": character,
+            "latest_story": latest_story,
         },
     )
 
@@ -160,31 +211,22 @@ def saves_session_snapshot(
     try:
         if not sessions.session_exists_under_campaign(conn, session_id=session_id, campaign_id=campaign_id):
             return RedirectResponse(url="/saves", status_code=303)
-        srow = sessions.get_session_sidebar(conn, session_id)
-        if srow is None:
-            return RedirectResponse(url="/saves", status_code=303)
-        row = conn.execute(
-            "SELECT COALESCE(MAX(turn_index), -1) AS max_turn FROM turn_logs WHERE session_id = ?",
-            (session_id,),
-        ).fetchone()
-        turn_index = max(0, int(row["max_turn"] if row is not None else 0))
-        session_snapshots.create_snapshot(
+        final_snapshot_name = (snapshot_name or "").strip() or "手动快照"
+        result = _create_session_snapshot(
             conn,
             session_id=session_id,
-            snapshot_name=(snapshot_name or "").strip() or "手动快照",
-            turn_index=turn_index,
-            current_scene=(srow["current_scene"] or "").strip(),
-            session_state=(srow["session_state"] or "").strip(),
-            pinned_world_notes=(srow["pinned_world_notes"] or "").strip(),
-            character_sheet_json=character_sheets.get_character_sheet(conn, session_id=session_id),
+            snapshot_name=final_snapshot_name,
         )
+        if result is None:
+            return RedirectResponse(url="/saves", status_code=303)
+        _snapshot_id, turn_index = result
         manual_change_logs.insert_log(
             conn,
             session_id=session_id,
             actor="player",
             change_type="snapshot_create",
             detail_json_text=json.dumps(
-                {"snapshot_name": (snapshot_name or "").strip() or "手动快照", "turn_index": turn_index},
+                {"snapshot_name": final_snapshot_name, "turn_index": turn_index},
                 ensure_ascii=False,
             ),
         )
@@ -208,6 +250,15 @@ def saves_session_restore(
         snap = session_snapshots.get_snapshot(conn, snapshot_id=snapshot_id)
         if not snap or int(snap["session_id"]) != int(session_id):
             return RedirectResponse(url="/saves", status_code=303)
+        target_name = (snap.get("snapshot_name") or "未命名快照").strip()
+        safety_result = _create_session_snapshot(
+            conn,
+            session_id=session_id,
+            snapshot_name=f"恢复前自动备份 · {target_name}",
+        )
+        if safety_result is None:
+            return RedirectResponse(url="/saves", status_code=303)
+        safety_snapshot_id, safety_turn_index = safety_result
         sessions.update_session_from_snapshot(
             conn,
             campaign_id=campaign_id,
@@ -227,7 +278,12 @@ def saves_session_restore(
             actor="player",
             change_type="snapshot_restore",
             detail_json_text=json.dumps(
-                {"snapshot_id": int(snapshot_id), "snapshot_name": (snap.get("snapshot_name") or "")},
+                {
+                    "snapshot_id": int(snapshot_id),
+                    "snapshot_name": target_name,
+                    "safety_snapshot_id": safety_snapshot_id,
+                    "safety_turn_index": safety_turn_index,
+                },
                 ensure_ascii=False,
             ),
         )

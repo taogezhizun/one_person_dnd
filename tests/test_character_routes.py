@@ -235,7 +235,7 @@ class TestCharacterRoutes(unittest.TestCase):
                     notes_text="害怕深水。",
                 )
 
-            self.assertEqual(context["notice_message"], "已保存状态备注。")
+            self.assertEqual(context["notice_message"], "已保存状态、物品与备注。")
             conn = get_connection(paths.db_path)
             try:
                 updated = character_sheets.get_character_sheet(conn, session_id=session_id)
@@ -247,5 +247,41 @@ class TestCharacterRoutes(unittest.TestCase):
             self.assertIn('"notes": "害怕深水。"', updated)
             self.assertIn('"hp": 8', updated)
             self.assertIn('"gold": 15', updated)
+            self.assertIn('"inventory": [', updated)
+            self.assertIn('"短弓"', updated)
+        finally:
+            tmp.cleanup()
+
+    def test_quick_state_updates_inventory_as_structured_character_items(self) -> None:
+        tmp, paths, session_id = self._paths_with_sheet()
+        conn = get_connection(paths.db_path)
+        try:
+            campaign_id = conn.execute("SELECT campaign_id FROM sessions WHERE id = ?", (session_id,)).fetchone()["campaign_id"]
+        finally:
+            conn.close()
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.character.ensure_app_dirs", return_value=paths),
+                patch("one_person_dnd.web.routes.character.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.character.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                context = character.character_quick_state(
+                    request=object(),
+                    conditions_text="中毒",
+                    inventory_text="短弓\n专属的有无穷魔力的魔法戒指",
+                    notes_text="戒指放在口袋里。",
+                )
+
+            summary = context["character_summary"]
+            self.assertEqual(summary.inventory, ["短弓", "专属的有无穷魔力的魔法戒指"])
+            conn = get_connection(paths.db_path)
+            try:
+                updated = character_sheets.get_character_sheet(conn, session_id=session_id)
+            finally:
+                conn.close()
+            self.assertIn('"inventory": [', updated)
+            self.assertIn('"专属的有无穷魔力的魔法戒指"', updated)
         finally:
             tmp.cleanup()

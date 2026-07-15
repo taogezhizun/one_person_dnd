@@ -10,20 +10,21 @@
     <script src="https://unpkg.com/marked@12.0.2/marked.min.js"></script>
     <script src="https://unpkg.com/dompurify@3.0.11/dist/purify.min.js"></script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23121a26'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='34' font-family='Arial' fill='%237aa2f7'%3Ed%3C/text%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/style.css?v=20260715-desktop-ux" />
   </head>
   <body>
     <a class="skip-link" href="#main-content" data-skip-link>跳到主要内容</a>
     <header class="header">
       <div class="container header__inner">
         <a class="brand" href="/">one_person_dnd</a>
-        <nav class="nav">
-          <a href="/game">游玩</a>
-          <a href="/new">新冒险</a>
-          <a href="/saves">冒险</a>
-          <a href="/memory/world">世界</a>
-          <a href="/threads">剧情线</a>
-          <a href="/models">模型</a>
+        {% set current_path = request.url.path if request is defined else "" %}
+        <nav class="nav" aria-label="主要导航">
+          <a href="/game" {% if current_path == "/game" %}aria-current="page"{% endif %}>游玩</a>
+          <a href="/new" {% if current_path.startswith("/new") %}aria-current="page"{% endif %}>新冒险</a>
+          <a href="/saves" {% if current_path.startswith("/saves") %}aria-current="page"{% endif %}>冒险</a>
+          <a href="/memory/world" {% if current_path.startswith("/memory/world") %}aria-current="page"{% endif %}>世界</a>
+          <a href="/threads" {% if current_path.startswith("/threads") %}aria-current="page"{% endif %}>剧情线</a>
+          <a href="/models" {% if current_path.startswith("/models") %}aria-current="page"{% endif %}>模型</a>
         </nav>
       </div>
     </header>
@@ -34,6 +35,8 @@
     <script>
       (function () {
         const SIDEBAR_STORAGE_KEY = "one_person_dnd.sidebarCollapsed";
+        const GAME_LAYOUT_WIDTH_STORAGE_PREFIX = "one_person_dnd.gameSidebarWidth.";
+        const CHAT_HISTORY_HEIGHT_STORAGE_PREFIX = "one_person_dnd.chatHistoryHeight.";
         const ADVANCED_STORAGE_KEY = "one_person_dnd.advancedInputsOpen";
         const TURN_DRAFT_STORAGE_PREFIX = "one_person_dnd.turnDraft.";
         const STATE_BLOCK_DRAFT_STORAGE_PREFIX = "one_person_dnd.stateBlockDraft.";
@@ -56,7 +59,7 @@
         const ACTION_WARNING_LABELS = Object.freeze({
           possible_overreach: "行动可能越权",
           declared_success: "行动描述已包含结果",
-          npc_outcome_claim: "NPC 结果需要 DM 判定",
+          npc_outcome_claim: "人物结果需要 DM 判定",
         });
         const CRITIC_WARNING_LABELS = Object.freeze({
           empty_dm_response: "DM 没有返回内容",
@@ -211,6 +214,245 @@
           btn.addEventListener("click", function () {
             const collapsed = document.body.classList.contains("sidebar-collapsed");
             setSidebarCollapsed(!collapsed);
+          });
+        }
+
+        function gameLayoutStorageKey(grid) {
+          const sessionInput = grid ? grid.querySelector("input[name=session_id]") : null;
+          const sessionId = sessionInput && sessionInput.value ? sessionInput.value : "current";
+          return GAME_LAYOUT_WIDTH_STORAGE_PREFIX + sessionId;
+        }
+
+        function canResizeGameLayout(grid, resizer) {
+          if (!grid || !resizer) return false;
+          if (document.body.classList.contains("sidebar-collapsed")) return false;
+          return window.getComputedStyle(resizer).display !== "none";
+        }
+
+        function clampGameSidebarWidth(grid, width) {
+          const rect = grid.getBoundingClientRect();
+          const sidebarMin = grid.classList.contains("grid--game-story-first") ? 340 : 360;
+          const storyMin = grid.classList.contains("grid--game-story-first") ? 560 : 620;
+          const maxByGrid = Math.max(sidebarMin, rect.width - storyMin - 32);
+          const sidebarMax = Math.min(520, maxByGrid);
+          const numeric = Number.parseFloat(width);
+          if (!Number.isFinite(numeric)) return sidebarMin;
+          return Math.max(sidebarMin, Math.min(sidebarMax, numeric));
+        }
+
+        function applyGameSidebarWidth(grid, width, persist) {
+          if (!grid) return;
+          const nextWidth = clampGameSidebarWidth(grid, width);
+          grid.style.setProperty("--game-sidebar-width", nextWidth + "px");
+          if (persist) {
+            try {
+              localStorage.setItem(gameLayoutStorageKey(grid), String(Math.round(nextWidth)));
+            } catch (e) {}
+          }
+        }
+
+        function resetGameLayoutWidth(grid) {
+          if (!grid) return;
+          grid.style.removeProperty("--game-sidebar-width");
+          try {
+            localStorage.removeItem(gameLayoutStorageKey(grid));
+          } catch (e) {}
+        }
+
+        function initGameLayoutResizer() {
+          const grid = document.querySelector("[data-game-layout]");
+          const resizer = document.querySelector("[data-game-layout-resizer]");
+          const resetBtn = document.querySelector("[data-game-layout-reset]");
+          if (!grid || !resizer) return;
+
+          try {
+            const saved = localStorage.getItem(gameLayoutStorageKey(grid));
+            if (saved) applyGameSidebarWidth(grid, Number.parseFloat(saved), false);
+          } catch (e) {}
+
+          let dragActive = false;
+          let lastPointerDownAt = 0;
+          function widthFromPointer(evt) {
+            const rect = grid.getBoundingClientRect();
+            return rect.right - evt.clientX;
+          }
+
+          resizer.addEventListener("pointerdown", function (evt) {
+            if (!canResizeGameLayout(grid, resizer)) return;
+            const now = Date.now();
+            if (now - lastPointerDownAt < 360) {
+              lastPointerDownAt = 0;
+              resetGameLayoutWidth(grid);
+              evt.preventDefault();
+              return;
+            }
+            lastPointerDownAt = now;
+            dragActive = true;
+            document.body.classList.add("game-layout-resizing");
+            try {
+              resizer.setPointerCapture(evt.pointerId);
+            } catch (e) {}
+            evt.preventDefault();
+          });
+
+          window.addEventListener("pointermove", function (evt) {
+            if (!dragActive) return;
+            applyGameSidebarWidth(grid, widthFromPointer(evt), true);
+          });
+
+          window.addEventListener("pointerup", function () {
+            if (!dragActive) return;
+            dragActive = false;
+            document.body.classList.remove("game-layout-resizing");
+          });
+
+          resizer.addEventListener("keydown", function (evt) {
+            if (!canResizeGameLayout(grid, resizer)) return;
+            if (evt.key !== "ArrowLeft" && evt.key !== "ArrowRight") return;
+            const current = Number.parseFloat(window.getComputedStyle(grid).getPropertyValue("--game-sidebar-width"));
+            const delta = evt.shiftKey ? 48 : 16;
+            applyGameSidebarWidth(grid, current + (evt.key === "ArrowLeft" ? delta : -delta), true);
+            evt.preventDefault();
+          });
+
+          resizer.addEventListener("dblclick", function () {
+            resetGameLayoutWidth(grid);
+          });
+
+          if (resetBtn) {
+            resetBtn.addEventListener("click", function () {
+              resetGameLayoutWidth(grid);
+            });
+          }
+
+          window.addEventListener("resize", function () {
+            const current = Number.parseFloat(window.getComputedStyle(grid).getPropertyValue("--game-sidebar-width"));
+            if (Number.isFinite(current)) applyGameSidebarWidth(grid, current, false);
+          });
+        }
+
+        function chatHistoryHeightStorageKey() {
+          const sessionInput = document.querySelector("#turn-form input[name=session_id], input[name=session_id], select[name=session_id]");
+          const sessionId = sessionInput && sessionInput.value ? sessionInput.value : "current";
+          return CHAT_HISTORY_HEIGHT_STORAGE_PREFIX + sessionId;
+        }
+
+        function clampChatHistoryHeight(chat, height) {
+          const minHeight = window.matchMedia("(max-width: 520px)").matches ? 150 : 220;
+          const maxHeight = Math.min(920, Math.max(minHeight, window.innerHeight - 156));
+          const numeric = Number.parseFloat(height);
+          if (!Number.isFinite(numeric)) {
+            const current = chat ? chat.getBoundingClientRect().height : minHeight;
+            return Math.max(minHeight, Math.min(maxHeight, current));
+          }
+          return Math.max(minHeight, Math.min(maxHeight, numeric));
+        }
+
+        function applyChatHistoryHeight(chat, height, persist) {
+          if (!chat) return;
+          const nextHeight = clampChatHistoryHeight(chat, height);
+          const card = chat.closest(".chat-card");
+          if (card) card.classList.add("chat-card--history-resized");
+          chat.style.setProperty("--chat-history-height", nextHeight + "px");
+          chat.dataset.chatHistoryHeight = String(Math.round(nextHeight));
+          if (persist) {
+            try {
+              localStorage.setItem(chatHistoryHeightStorageKey(), String(Math.round(nextHeight)));
+            } catch (e) {}
+          }
+        }
+
+        function resetChatHistoryHeight(chat) {
+          if (!chat) return;
+          const card = chat.closest(".chat-card");
+          if (card) card.classList.remove("chat-card--history-resized");
+          chat.style.removeProperty("--chat-history-height");
+          delete chat.dataset.chatHistoryHeight;
+          try {
+            localStorage.removeItem(chatHistoryHeightStorageKey());
+          } catch (e) {}
+        }
+
+        function canResizeChatHistory(resizer) {
+          return Boolean(resizer && window.getComputedStyle(resizer).display !== "none");
+        }
+
+        function initChatHistoryResizer() {
+          const chat = document.querySelector("[data-chat-history-resizable]");
+          const resizer = document.querySelector("[data-chat-history-resizer]");
+          const resetBtn = document.querySelector("[data-game-layout-reset]");
+          if (!chat || !resizer) return;
+
+          try {
+            const saved = localStorage.getItem(chatHistoryHeightStorageKey());
+            if (saved && canResizeChatHistory(resizer)) applyChatHistoryHeight(chat, Number.parseFloat(saved), false);
+          } catch (e) {}
+
+          let dragActive = false;
+          let lastPointerDownAt = 0;
+          function heightFromPointer(evt) {
+            const rect = chat.getBoundingClientRect();
+            return evt.clientY - rect.top;
+          }
+
+          resizer.addEventListener("pointerdown", function (evt) {
+            if (!canResizeChatHistory(resizer)) return;
+            const now = Date.now();
+            if (now - lastPointerDownAt < 360) {
+              lastPointerDownAt = 0;
+              resetChatHistoryHeight(chat);
+              evt.preventDefault();
+              return;
+            }
+            lastPointerDownAt = now;
+            dragActive = true;
+            document.body.classList.add("chat-history-resizing");
+            try {
+              resizer.setPointerCapture(evt.pointerId);
+            } catch (e) {}
+            evt.preventDefault();
+          });
+
+          window.addEventListener("pointermove", function (evt) {
+            if (!dragActive) return;
+            applyChatHistoryHeight(chat, heightFromPointer(evt), true);
+          });
+
+          window.addEventListener("pointerup", function () {
+            if (!dragActive) return;
+            dragActive = false;
+            document.body.classList.remove("chat-history-resizing");
+          });
+
+          resizer.addEventListener("keydown", function (evt) {
+            if (!canResizeChatHistory(resizer)) return;
+            if (evt.key !== "ArrowUp" && evt.key !== "ArrowDown") return;
+            const current = Number.parseFloat(chat.dataset.chatHistoryHeight || chat.getBoundingClientRect().height);
+            const delta = evt.shiftKey ? 48 : 16;
+            applyChatHistoryHeight(chat, current + (evt.key === "ArrowDown" ? delta : -delta), true);
+            evt.preventDefault();
+          });
+
+          resizer.addEventListener("dblclick", function () {
+            resetChatHistoryHeight(chat);
+          });
+
+          if (resetBtn) {
+            resetBtn.addEventListener("click", function () {
+              resetChatHistoryHeight(chat);
+            });
+          }
+
+          window.addEventListener("resize", function () {
+            if (!canResizeChatHistory(resizer)) {
+              const card = chat.closest(".chat-card");
+              if (card) card.classList.remove("chat-card--history-resized");
+              chat.style.removeProperty("--chat-history-height");
+              delete chat.dataset.chatHistoryHeight;
+              return;
+            }
+            const current = Number.parseFloat(chat.dataset.chatHistoryHeight || "");
+            if (Number.isFinite(current)) applyChatHistoryHeight(chat, current, false);
           });
         }
 
@@ -421,8 +663,11 @@
 
         function initLongSubmitForms() {
           document.querySelectorAll("[data-long-submit]").forEach((form) => {
-            form.addEventListener("submit", function () {
-              const button = form.querySelector("[data-long-submit-button]");
+            form.addEventListener("submit", function (event) {
+              const submittedButton = event.submitter;
+              const button = submittedButton && submittedButton.matches("[data-long-submit-button]")
+                ? submittedButton
+                : form.querySelector("[data-long-submit-button]");
               const status = form.querySelector("[data-long-submit-status]");
               if (button) {
                 const loadingLabel = button.dataset.longSubmitLabel || button.textContent || "";
@@ -434,10 +679,18 @@
           });
         }
 
+        function initConfirmForms() {
+          document.body.addEventListener("submit", function (event) {
+            const form = event.target instanceof HTMLFormElement ? event.target : null;
+            if (!form || !form.dataset.confirmMessage) return;
+            if (!window.confirm(form.dataset.confirmMessage)) event.preventDefault();
+          });
+        }
+
         function setTurnRequestUI(inFlight) {
           const form = document.getElementById("turn-form");
           const cancelBtn = document.getElementById("turn-cancel");
-          if (cancelBtn) cancelBtn.style.display = inFlight ? "inline-block" : "none";
+          if (cancelBtn) cancelBtn.hidden = !inFlight;
           if (form) {
             form.dataset.turnInFlight = inFlight ? "1" : "0";
             setTurnFieldsReadOnly(form, inFlight);
@@ -643,6 +896,83 @@
           targetEl.appendChild(wrap);
         }
 
+        function renderLatestChoices(choices) {
+          const tray = document.querySelector("[data-latest-choices]");
+          const list = tray ? tray.querySelector("[data-latest-choices-list]") : null;
+          if (!tray || !list) return;
+          const items = Array.isArray(choices) ? choices.filter((item) => String(item || "").trim()) : [];
+          list.innerHTML = "";
+          items.forEach((choice) => {
+            const text = String(choice || "").trim();
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "choice-action choice-action--latest";
+            button.dataset.choiceText = text;
+            button.title = text;
+            button.setAttribute("data-choice-action", "");
+            button.setAttribute("aria-pressed", "false");
+            button.textContent = text;
+            list.appendChild(button);
+          });
+          tray.hidden = items.length === 0;
+        }
+
+        function syncLatestChoicesFromTurn(turnEl) {
+          if (!turnEl) return;
+          const choices = Array.from(turnEl.querySelectorAll("[data-turn-choice-history] [data-choice-action]"))
+            .map((button) => (button.dataset.choiceText || button.textContent || "").trim())
+            .filter(Boolean);
+          renderLatestChoices(choices);
+        }
+
+        function renderSystemDiagnostic(turn) {
+          const root = document.getElementById("system-diagnostics");
+          if (!root || !turn) return;
+          const criticWarnings = Array.isArray(turn.critic_warnings) ? turn.critic_warnings : [];
+          const responseWarnings = Array.isArray(turn.response_warnings) ? turn.response_warnings : [];
+          const dmNotes = (turn.dm && turn.dm.dm_notes) || "";
+          const memorySuggestions = (turn.dm && turn.dm.memory_suggestions) || "";
+          if (!criticWarnings.length && !responseWarnings.length && !dmNotes.trim() && !memorySuggestions.trim()) return;
+
+          const turnIndex = String(turn.turn_index ?? "最新");
+          const previous = root.querySelector(`[data-turn-diagnostic="${CSS.escape(turnIndex)}"]`);
+          if (previous) previous.remove();
+
+          const article = document.createElement("article");
+          article.className = "turn-diagnostic";
+          article.dataset.turnDiagnostic = turnIndex;
+          const head = document.createElement("div");
+          head.className = "turn-diagnostic__head";
+          const title = document.createElement("strong");
+          title.textContent = `回合 ${turnIndex}`;
+          head.appendChild(title);
+          article.appendChild(head);
+
+          renderDmReview(article, criticWarnings);
+          renderResponseReview(article, responseWarnings);
+          if (!criticWarnings.length && !responseWarnings.length) {
+            const passed = document.createElement("div");
+            passed.className = "muted";
+            passed.textContent = "可玩性检查通过";
+            article.appendChild(passed);
+          }
+          const addDetails = function (label, content) {
+            if (!content || !content.trim()) return;
+            const details = document.createElement("details");
+            const summary = document.createElement("summary");
+            summary.textContent = label;
+            const body = document.createElement("div");
+            body.className = "prose-copy";
+            body.textContent = content;
+            details.appendChild(summary);
+            details.appendChild(body);
+            article.appendChild(details);
+          };
+          addDetails("DM 内部备注", dmNotes);
+          addDetails("故事记忆建议", memorySuggestions);
+          root.prepend(article);
+        }
+
         function renderRecalledContext(recalledContext, recalledWorld) {
           const recall = document.getElementById("recall-preview");
           if (!recall) return;
@@ -741,8 +1071,7 @@
             title.textContent = "系统掷骰";
             wrap.appendChild(title);
             const ul = document.createElement("ul");
-            ul.style.margin = "6px 0 0";
-            ul.style.paddingLeft = "18px";
+            ul.className = "dice-events__list";
             diceEvents.forEach((e) => {
               const li = document.createElement("li");
               const expr = e.expr || "";
@@ -759,8 +1088,6 @@
           const asstMsg = turnEl.querySelector(".chat__msg--assistant");
           if (!asstMsg) return;
           asstMsg.innerHTML = '<div class="chat__meta">DM</div>';
-          renderDmReview(asstMsg, turn && turn.critic_warnings);
-          renderResponseReview(asstMsg, turn && turn.response_warnings);
 
           const narration = document.createElement("div");
           narration.className = "chat__content md";
@@ -770,60 +1097,30 @@
 
           const choices = (turn.dm && turn.dm.choices) || [];
           if (choices && choices.length > 0) {
-            const wrap = document.createElement("div");
-            wrap.className = "choices";
-            wrap.style.marginTop = "10px";
-            wrap.innerHTML = '<div class="muted">可选行动</div>';
-            const ol = document.createElement("ol");
-            ol.className = "choices__list";
+            const wrap = document.createElement("details");
+            wrap.className = "turn-choice-history";
+            wrap.setAttribute("data-turn-choice-history", "");
+            const summary = document.createElement("summary");
+            summary.textContent = "当时的行动灵感";
+            wrap.appendChild(summary);
+            const list = document.createElement("div");
+            list.className = "choices__list";
             choices.forEach((c) => {
-              const li = document.createElement("li");
               const btn = document.createElement("button");
               btn.type = "button";
               btn.className = "choice-action";
               btn.dataset.choiceText = c || "";
+              btn.title = c || "";
               btn.setAttribute("data-choice-action", "");
               btn.setAttribute("aria-pressed", "false");
               btn.textContent = c;
-              li.appendChild(btn);
-              ol.appendChild(li);
+              list.appendChild(btn);
             });
-            wrap.appendChild(ol);
+            wrap.appendChild(list);
             asstMsg.appendChild(wrap);
           }
-
-          const dmNotes = (turn.dm && turn.dm.dm_notes) || "";
-          if (dmNotes && dmNotes.trim()) {
-            const det = document.createElement("details");
-            det.style.marginTop = "10px";
-            const sum = document.createElement("summary");
-            sum.className = "muted";
-            sum.textContent = "DM 备注（系统）";
-            const pre = document.createElement("pre");
-            pre.className = "pre md";
-            pre.setAttribute("data-md", "");
-            pre.textContent = dmNotes;
-            det.appendChild(sum);
-            det.appendChild(pre);
-            asstMsg.appendChild(det);
-          }
-
-          const mem = (turn.dm && turn.dm.memory_suggestions) || "";
-          if (mem && mem.trim()) {
-            const det = document.createElement("details");
-            det.style.marginTop = "10px";
-            const sum = document.createElement("summary");
-            sum.className = "muted";
-            sum.textContent = "剧情摘要建议";
-            const pre = document.createElement("pre");
-            pre.className = "pre md";
-            pre.setAttribute("data-md", "");
-            pre.textContent = mem;
-            det.appendChild(sum);
-            det.appendChild(pre);
-            asstMsg.appendChild(det);
-          }
-
+          renderLatestChoices(choices);
+          renderSystemDiagnostic(turn);
           renderRecalledContext(recalledContext, recalledWorld);
         }
 
@@ -1082,6 +1379,7 @@
               const playerText = ta && ta.value ? ta.value : "";
               if (!playerText.trim()) return;
 
+              renderLatestChoices([]);
               const { turnEl, asstContent } = appendTurnSkeleton(chatHistory, playerText);
               if (shouldFollowScroll) scheduleAutoScroll();
               else updateScrollButton();
@@ -1158,7 +1456,7 @@
                       if (asstMsg) {
                         asstMsg.innerHTML =
                           '<div class="chat__meta">DM</div>' +
-                          '<div class="notice notice--err" role="status" aria-live="polite"><div style="font-weight:700;">请求失败</div><div class="muted"></div></div>';
+                          '<div class="notice notice--err" role="status" aria-live="polite"><div class="notice__title">请求失败</div><div class="muted"></div></div>';
                         const m = asstMsg.querySelector(".notice .muted");
                         if (m) m.textContent = payload.message || "未知错误";
                       }
@@ -1235,6 +1533,8 @@
           initSkipLinks();
           scrollChatToBottom();
           initSidebarToggle();
+          initGameLayoutResizer();
+          initChatHistoryResizer();
           initAdvancedInputsToggle();
           initTurnDraftPersistence();
           initAutoGrowTextareas();
@@ -1243,6 +1543,7 @@
           initTurnSubmitState();
           initQuickRollSubmitState();
           initLongSubmitForms();
+          initConfirmForms();
           initTurnStreaming();
           initTurnShortcuts();
           initChoiceActions();
@@ -1283,6 +1584,7 @@
               updateScrollButton();
             }
             const lastTurn = evt.target.lastElementChild;
+            syncLatestChoicesFromTurn(lastTurn);
             if (lastTurn && lastTurn.dataset.turnHasPendingReview === "1") {
               surfacePendingReview({
                 has_pending_review: true,

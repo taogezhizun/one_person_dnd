@@ -6,7 +6,7 @@ import sqlite3
 def list_world_bible_entries(conn: sqlite3.Connection, *, campaign_id: int, limit: int = 200) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT id, type, title, tags, updated_at
+        SELECT id, type, title, tags, substr(content, 1, 220) AS content_preview, updated_at
         FROM world_bible_entries
         WHERE campaign_id = ?
         ORDER BY updated_at DESC, id DESC
@@ -15,6 +15,14 @@ def list_world_bible_entries(conn: sqlite3.Connection, *, campaign_id: int, limi
         (campaign_id, limit),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def has_world_bible_entries(conn: sqlite3.Connection, *, campaign_id: int) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM world_bible_entries WHERE campaign_id = ? LIMIT 1",
+        (campaign_id,),
+    ).fetchone()
+    return row is not None
 
 
 def select_world_bible_for_prompt(

@@ -1,47 +1,72 @@
 {% extends "base.html" %}
 
-{% block title %}主页 - one_person_dnd{% endblock %}
+{% block title %}继续冒险 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <section class="home-dashboard">
-    <div class="home-panel home-panel--primary ledger-rail">
-      <div class="home-panel__kicker">one_person_dnd</div>
-      <h1 class="home-panel__title">当前冒险桌面</h1>
-      <div class="home-status">
-        <div class="home-status__row">
-          <span class="home-status__label">Campaign</span>
-          <span class="home-status__value">{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</span>
+  <section class="home-dashboard home-dashboard--continue">
+    <article class="home-panel home-panel--primary ledger-rail continue-story-card">
+      <div class="home-panel__kicker">继续上次旅程</div>
+      <div class="continue-story-card__heading">
+        <div>
+          <h1 class="home-panel__title">{{ campaign_name or "未命名冒险" }}</h1>
+          <div class="continue-story-card__chapter">{{ session_title or "故事开场" }}</div>
         </div>
-        <div class="home-status__row">
-          <span class="home-status__label">Session</span>
-          <span class="home-status__value">{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</span>
-        </div>
+        {% if last_played_at %}<div class="continue-story-card__time">最近游玩 · {{ last_played_at }}</div>{% endif %}
       </div>
-      <div class="home-panel__actions">
-        <a class="btn" href="/game">继续当前会话</a>
-        <a class="btn btn--ghost" href="/new">创建新冒险</a>
-        <a class="btn btn--ghost" href="/saves">管理冒险</a>
-      </div>
-    </div>
 
-    <div class="home-panel">
-      {% if llm_configured %}
-        <div class="home-panel__kicker">DM 连接</div>
-        <div class="card__title">LLM 已配置</div>
-        <div class="muted">配置文件：{{ config_filename }}</div>
-        <div class="home-panel__actions">
-          <a class="btn" href="/game">进入游戏</a>
-          <a class="btn btn--ghost" href="/models">配置模型</a>
+      <div class="continue-story-card__scene">
+        <div class="continue-story-card__scene-label">当前场景</div>
+        <div class="continue-story-card__scene-value">{{ current_scene or "尚未写下开场地点" }}</div>
+      </div>
+
+      <div class="continue-story-card__page">
+        <div class="continue-story-card__page-label">故事停在这里</div>
+        {% if latest_story %}
+          <p>{{ latest_story }}</p>
+        {% else %}
+          <p class="muted">这场冒险还没有故事记录。进入后写下第一个行动，DM 会从这里接住你。</p>
+        {% endif %}
+      </div>
+
+      <div class="home-panel__actions home-panel__actions--continue">
+        <a class="btn btn--prominent" href="/game">继续这场冒险</a>
+        <a class="btn btn--ghost" href="/new">创建新冒险</a>
+        <a class="text-link" href="/saves">查看全部冒险</a>
+      </div>
+    </article>
+
+    <aside class="home-panel journey-status-card">
+      <div class="home-panel__kicker">旅途状态</div>
+      {% if character and character.has_content %}
+        <div class="journey-character">
+          <div class="journey-character__mark" aria-hidden="true">{{ (character.name or "旅")[:1] }}</div>
+          <div>
+            <div class="journey-character__name">{{ character.name or "未命名角色" }}</div>
+            <div class="muted">{{ character.race or "身世未定" }}{% if character.role %} · {{ character.role }}{% endif %}</div>
+          </div>
         </div>
+        <dl class="journey-stats">
+          {% if character.hp is not none %}
+            <div><dt>生命</dt><dd>{{ character.hp }}{% if character.max_hp is not none %} / {{ character.max_hp }}{% endif %}</dd></div>
+          {% endif %}
+          {% if character.gold is not none %}<div><dt>金币</dt><dd>{{ character.gold }}</dd></div>{% endif %}
+          <div><dt>状态</dt><dd>{{ character.conditions|join("、") if character.conditions else "状态稳定" }}</dd></div>
+        </dl>
+        {% if character.goal %}
+          <div class="journey-goal"><span>当前目标</span>{{ character.goal }}</div>
+        {% endif %}
       {% else %}
-        <div class="home-panel__kicker">DM 连接</div>
-        <div class="card__title">需要先配置 LLM</div>
-        <div class="muted">配置文件：{{ config_filename }}</div>
-        <div class="home-panel__actions">
-          <a class="btn" href="/models">去配置模型</a>
-          <a class="btn btn--ghost" href="/models">配置模型</a>
-        </div>
+        <div class="empty-state">还没有角色资料。进入冒险面板后可以随时补充。</div>
       {% endif %}
-    </div>
+
+      <div class="journey-connection {% if llm_configured %}journey-connection--ready{% endif %}">
+        <span class="journey-connection__dot" aria-hidden="true"></span>
+        <div>
+          <div>{{ "DM 已就绪" if llm_configured else "DM 尚未连接" }}</div>
+          <div class="muted">{{ "可以继续行动" if llm_configured else "先选择一个模型再开始" }}</div>
+        </div>
+        <a class="text-link" href="/models">{{ "调整" if llm_configured else "去配置模型" }}</a>
+      </div>
+    </aside>
   </section>
 {% endblock %}

@@ -35,9 +35,9 @@ python -m one_person_dnd --port 8010 --no-browser
 Recommended path:
 
 1. Open `/models`.
-2. Use the `DeepSeek 快速配置` panel for the common path.
-3. For DeepSeek, set a profile name if needed and enter a non-empty API key; the form submits `base_url = https://api.deepseek.com/v1` and `model = deepseek-chat`.
-4. For custom OpenAI-compatible servers, open `自定义 OpenAI-compatible 配置`, then set `base_url`, `api_key`, `model`, and timeout.
+2. Review existing profile cards first. If none is suitable, expand `添加模型`.
+3. Use the DeepSeek quick-start option for the common path; it submits `base_url = https://api.deepseek.com/v1` and `model = deepseek-chat`.
+4. For custom OpenAI-compatible servers, open the advanced custom form, then set `base_url`, `api_key`, `model`, and timeout.
 5. Click test.
 6. Set the profile active.
 
@@ -71,18 +71,18 @@ PYTHONPATH=src python -m unittest discover -s tests -p "test*.py"
 Then check:
 
 - `/` loads and reports LLM configured when an active DB profile exists from `/models`, even if legacy `api_config.ini [llm]` is absent.
-- `/` and the top navigation expose `新冒险` / `/new` as a direct adventure-start path before management-heavy flows.
-- `/models` loads, shows `DeepSeek 快速配置` before `自定义 OpenAI-compatible 配置`, and can show profile state.
-- `/saves` creates or shows a default campaign/session; on narrow screens the campaign list should render as cards, not require page-level horizontal scrolling.
+- `/` leads with the active campaign, current chapter, character/DM state, recent story, and last-played time; `继续故事` is primary and `新冒险` is secondary.
+- `/models` lists existing profile cards before the folded creation area; DeepSeek appears first inside creation, custom OpenAI-compatible fields remain advanced, and blank edit keys preserve stored credentials without rendering them.
+- `/saves` lists existing adventures and chapters before folded creation forms. Restoring a snapshot must show a destructive confirmation and create an automatic safety snapshot before changing current state.
 - `/memory/world` loads.
-- `/game` loads; empty sessions should show the player action composer and quick-roll panel before chat history, sessions with prior turns should show chat history before the compact sticky composer and quick-roll panel, newly appended turns should show a “系统判定” block when an action assessment is present, “系统掷骰” under the player action when dice events are present, a “本回合参考” block in the World tab when context blocks are recalled, a “DM 审查” block when critic warnings are present, and a “反应评估” block when response warnings are present. Before any turn is sent, the World tab's “本回合参考” empty state should describe all likely context sources instead of only WorldBible. Desktop story-first mode should keep the story history on its own row through 1920px-class viewports, with action input and quick roll below it instead of a right rail that narrows narration. Desktop 1280x720 and mobile width should keep the status strip, story preview, action composer, and quick-roll panel compact enough that the action loop remains reachable without horizontal overflow; at 1280x720 the story-first card must not clip the action composer or quick-roll panel behind its own fixed height. Mobile story-first mode should still leave the story history readable, not collapsed to a one-line strip. Compact story-first mode should not restore an empty advanced-options panel open just because it was open in a previous visit. Cmd/Ctrl+Enter in the action textarea should only submit when the visible send button is enabled. The adventure panel should expose 角色/世界/剧情/系统 tabs, open plot threads should be visible under the 剧情 tab when present, and system/cheat controls should be under the 系统 tab inside the advanced section. Character-panel mutation forms should expose visible `htmx-indicator` progress text and polite live status while saving/applying/rejecting changes.
+- `/game` loads with a story-first desktop layout. Empty chapters show the composer before empty history; chapters with turns show history first. The latest DM choices appear next to the composer and only fill the textarea, while historical choices are collapsed. Action assessment and dice stay under the player action; recalled context stays in World; critic/response diagnostics stay in System. At 1280×720, 1920×1080, and 2560×1440 there must be no horizontal page overflow, the sidebar should remain about 400px within its draggable limits, long history must scroll internally, and the composer must remain reachable. The maximum page content width is about 2160px. The pending-review callout remains hidden at zero, Cmd/Ctrl+Enter obeys the visible send-button state, and character mutation forms keep visible polite submission feedback.
 
 With a working LLM profile:
 
 - `/models` test returns a response.
-- `/new` can generate preview JSON.
+- `/new` can produce an editable proposal, generate a readable preview, and create a new campaign/first session without mutating the previously active save.
 - `/game` can submit a turn and append a DM response; any DM choice buttons should fill the player input when clicked.
-- `/character/panel` shows a readable character overview when a character sheet exists, including abilities, conditions, and notes; HP/gold quick adjustment and status-note saving should preserve existing character fields, while raw JSON remains available in the advanced section.
+- `/character/panel` shows a readable character overview when a character sheet exists, including abilities, inventory, conditions, and notes; HP/gold quick adjustment and status/inventory/note saving should preserve existing character fields, while raw JSON remains available in the advanced section.
 
 ## Backup and Reset Local Data
 
@@ -187,7 +187,7 @@ Malformed `STATE_DELTA` JSON should not create a pending request on either non-s
 
 The character panel and turn prompt share the same parser: `domain.characters.summarize_character_sheet()`. If HP/gold/inventory/conditions/notes appear wrong, inspect the active session's `character_sheets.json_text` and make sure the first `party` entry or top-level legacy fields contain those values.
 
-`/character/quick_adjust` and `/character/quick_state` should preserve top-level legacy sheets. If a legacy sheet unexpectedly gains a new `party[0]` that shadows top-level fields, check the primary-character selection helper in `web/routes/character.py`.
+`/character/quick_adjust` and `/character/quick_state` should preserve top-level legacy sheets. `quick_state` should write player-entered items to `inventory`; if an item only appears under `notes`, inspect the status/inventory form and `web/routes/character.py`. If a legacy sheet unexpectedly gains a new `party[0]` that shadows top-level fields, check the primary-character selection helper in `web/routes/character.py`.
 
 If an approved partial party delta unexpectedly removes fields, check that the apply path still calls `merge_state_delta()` rather than a route-local deep merge or a plain list replacement.
 

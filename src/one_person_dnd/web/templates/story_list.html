@@ -3,8 +3,8 @@
 {% block title %}剧情摘要 - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>剧情摘要（StoryJournal）</h1>
-  <div class="muted">Session：{{ session_id }}</div>
+  <h1>故事摘要</h1>
+  <div class="muted">当前章节</div>
 
   <div class="card">
     <div class="card__title">摘要列表</div>
@@ -12,7 +12,6 @@
       <table class="table">
         <thead>
           <tr>
-            <th>ID</th>
             <th>场景</th>
             <th>摘要</th>
             <th>时间</th>
@@ -21,7 +20,6 @@
         <tbody>
           {% for e in entries %}
             <tr>
-              <td>{{ e.id }}</td>
               <td class="muted">{{ e.scene_id }}</td>
               <td>{{ e.summary }}</td>
               <td class="muted">{{ e.created_at }}</td>

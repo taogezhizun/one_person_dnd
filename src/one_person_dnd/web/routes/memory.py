@@ -4,7 +4,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from one_person_dnd.db import get_connection
-from one_person_dnd.db.repos import story_journal, world_bible
+from one_person_dnd.db.repos import campaigns, story_journal, world_bible
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import get_current_campaign_session, templates
 
@@ -18,13 +18,14 @@ def world_bible_list(request: Request) -> HTMLResponse:
     conn = get_connection(paths.db_path)
     try:
         entries = world_bible.list_world_bible_entries(conn, campaign_id=campaign_id, limit=200)
+        campaign_name = campaigns.get_campaign_name(conn, campaign_id) or ""
     finally:
         conn.close()
 
     return templates.TemplateResponse(
         request=request,
         name="world_bible_list.html",
-        context={"entries": entries, "campaign_id": campaign_id},
+        context={"entries": entries, "campaign_id": campaign_id, "campaign_name": campaign_name},
     )
 
 

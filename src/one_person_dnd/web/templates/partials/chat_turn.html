@@ -16,21 +16,8 @@
 {% set action_warning_labels = {
   "possible_overreach": "行动可能越权",
   "declared_success": "行动描述已包含结果",
-  "npc_outcome_claim": "NPC 结果需要 DM 判定"
+  "npc_outcome_claim": "人物结果需要 DM 判定"
 } %}
-{% set critic_warning_labels = {
-  "empty_dm_response": "DM 没有返回内容",
-  "missing_required_protocol_delimiters": "DM 输出缺少必要段落",
-  "empty_narration": "叙事内容为空",
-  "choice_count_out_of_range": "选项数量不适合继续游玩",
-  "malformed_state_delta": "状态变更建议格式有误"
-} %}
-{% set response_warning_labels = {
-  "duplicate_choices": "选项重复",
-  "non_actionable_choice": "选项过于笼统",
-  "choice_declares_outcome": "选项替玩家宣布结果"
-} %}
-
 <div
   class="chat__turn"
   id="turn-{{ turn.turn_index }}"
@@ -61,9 +48,9 @@
       </div>
     {% endif %}
     {% if turn.dice_events and turn.dice_events|length > 0 %}
-      <div class="dice-events" style="margin-top: 8px;">
+      <div class="dice-events">
         <div class="muted">系统掷骰</div>
-        <ul style="margin: 6px 0 0; padding-left: 18px;">
+        <ul class="dice-events__list">
           {% for e in turn.dice_events %}
             <li>
               <span class="muted">{{ e.expr }}</span>
@@ -83,58 +70,22 @@
 
   <div class="chat__msg chat__msg--assistant">
     <div class="chat__meta">DM</div>
-    {% if turn.critic_warnings %}
-      <div class="dm-review">
-        <div class="muted dm-review__label">DM 审查</div>
-        <div class="assessment-pills">
-          {% for w in turn.critic_warnings or [] %}
-            <span class="assessment-pill assessment-pill--warn" title="{{ w }}">{{ critic_warning_labels.get(w, w) }}</span>
-          {% endfor %}
-        </div>
-      </div>
-    {% endif %}
-    {% if turn.response_warnings %}
-      <div class="response-review">
-        <div class="muted response-review__label">反应评估</div>
-        <div class="assessment-pills">
-          {% for w in turn.response_warnings or [] %}
-            <span class="assessment-pill assessment-pill--warn" title="{{ w }}">{{ response_warning_labels.get(w, w) }}</span>
-          {% endfor %}
-        </div>
-      </div>
-    {% endif %}
     <div class="chat__content md" data-md>{{ turn.dm.narration | e }}</div>
 
     {% if turn.dm.choices %}
-      <div class="choices" style="margin-top: 10px;">
-        <div class="muted">可选行动</div>
-        <ol class="choices__list">
+      <details class="turn-choice-history" data-turn-choice-history>
+        <summary>当时的行动灵感</summary>
+        <div class="choices__list">
           {% for c in turn.dm.choices %}
-            <li>
-              <button
-                class="choice-action"
-                type="button"
-                data-choice-action
-                aria-pressed="false"
-                data-choice-text="{{ c | e }}"
-              >{{ c | e }}</button>
-            </li>
+            <button
+              class="choice-action"
+              type="button"
+              data-choice-action
+              aria-pressed="false"
+              data-choice-text="{{ c | e }}"
+            >{{ c | e }}</button>
           {% endfor %}
-        </ol>
-      </div>
-    {% endif %}
-
-    {% if turn.dm.dm_notes %}
-      <details style="margin-top: 10px;">
-        <summary class="muted">DM 备注（系统）</summary>
-        <pre class="pre md" data-md>{{ turn.dm.dm_notes | e }}</pre>
-      </details>
-    {% endif %}
-
-    {% if turn.dm.memory_suggestions %}
-      <details style="margin-top: 10px;">
-        <summary class="muted">剧情摘要建议</summary>
-        <pre class="pre md" data-md>{{ turn.dm.memory_suggestions | e }}</pre>
+        </div>
       </details>
     {% endif %}
   </div>

@@ -205,7 +205,7 @@ def interactive_ensure_llm_config(config_path: Path) -> LLMConfig | None:
     print("检测到尚未配置 LLM（将写入 api_config.ini 的 [llm]）。")
     yn = input("现在配置 LLM 吗？[Y/n] ").strip().lower()
     if yn in ("n", "no"):
-        print("已跳过 LLM 配置。你也可以稍后在网页 /setup 配置。")
+        print("已跳过 LLM 配置。你也可以稍后在网页 /models 配置。")
         return None
 
     base_url = input("Base URL（例如 https://api.example.com/v1）：").strip()
@@ -220,7 +220,7 @@ def interactive_ensure_llm_config(config_path: Path) -> LLMConfig | None:
             timeout_seconds = 60.0
 
     if not base_url or not model or not api_key:
-        print("LLM 配置不完整，已跳过保存。你也可以稍后在网页 /setup 配置。")
+        print("LLM 配置不完整，已跳过保存。你也可以稍后在网页 /models 配置。")
         return None
 
     cfg = LLMConfig(

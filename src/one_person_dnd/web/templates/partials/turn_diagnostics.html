@@ -1,0 +1,44 @@
+{% set critic_warning_labels = {
+  "empty_dm_response": "DM 没有返回内容",
+  "missing_required_protocol_delimiters": "DM 输出缺少必要段落",
+  "empty_narration": "叙事内容为空",
+  "choice_count_out_of_range": "行动建议数量不适合继续游玩",
+  "malformed_state_delta": "状态变更建议格式有误"
+} %}
+{% set response_warning_labels = {
+  "duplicate_choices": "行动建议重复",
+  "non_actionable_choice": "行动建议过于笼统",
+  "choice_declares_outcome": "行动建议替玩家宣布结果"
+} %}
+{% if turn.critic_warnings or turn.response_warnings or turn.dm.dm_notes or turn.dm.memory_suggestions %}
+  <article class="turn-diagnostic" data-turn-diagnostic="{{ turn.turn_index }}">
+    <div class="turn-diagnostic__head">
+      <strong>回合 {{ turn.turn_index }}</strong>
+      {% if turn.created_at %}<span class="muted">{{ turn.created_at }}</span>{% endif %}
+    </div>
+    {% if turn.critic_warnings or turn.response_warnings %}
+      <div class="assessment-pills">
+        {% for warning in turn.critic_warnings or [] %}
+          <span class="assessment-pill assessment-pill--warn" title="{{ warning }}">{{ critic_warning_labels.get(warning, warning) }}</span>
+        {% endfor %}
+        {% for warning in turn.response_warnings or [] %}
+          <span class="assessment-pill assessment-pill--warn" title="{{ warning }}">{{ response_warning_labels.get(warning, warning) }}</span>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="muted">可玩性检查通过</div>
+    {% endif %}
+    {% if turn.dm.dm_notes %}
+      <details>
+        <summary>DM 内部备注</summary>
+        <div class="prose-copy">{{ turn.dm.dm_notes }}</div>
+      </details>
+    {% endif %}
+    {% if turn.dm.memory_suggestions %}
+      <details>
+        <summary>故事记忆建议</summary>
+        <div class="prose-copy">{{ turn.dm.memory_suggestions }}</div>
+      </details>
+    {% endif %}
+  </article>
+{% endif %}

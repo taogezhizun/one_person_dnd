@@ -116,16 +116,17 @@ class TestModelsRoutes(unittest.TestCase):
         finally:
             tmp.cleanup()
 
-    def test_models_template_prioritizes_deepseek_quickstart(self) -> None:
+    def test_models_template_browses_profiles_before_progressive_creation(self) -> None:
         template = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("model-quickstart", template)
-        self.assertIn("DeepSeek 快速配置", template)
+        self.assertIn("DeepSeek 快速开始", template)
         self.assertIn('name="provider" value="deepseek"', template)
         self.assertIn('name="base_url" value="https://api.deepseek.com/v1"', template)
         self.assertIn('name="model" value="deepseek-chat"', template)
         self.assertIn('name="timeout_seconds" value="60.0"', template)
-        self.assertLess(template.index("DeepSeek 快速配置"), template.index("自定义 OpenAI-compatible 配置"))
+        self.assertLess(template.index("已有模型"), template.index("添加模型"))
+        self.assertLess(template.index("DeepSeek 快速开始"), template.index("连接其他兼容服务"))
         self.assertIn(".model-quickstart", css)
         self.assertIn(".model-quickstart__grid", css)

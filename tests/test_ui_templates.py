@@ -34,14 +34,16 @@ class TestUITemplates(unittest.TestCase):
     def test_home_model_setup_cta_points_to_models(self) -> None:
         index = Path("src/one_person_dnd/web/templates/index.html").read_text(encoding="utf-8")
 
-        self.assertIn('href="/models">去配置模型', index)
+        self.assertIn('href="/models"', index)
+        self.assertIn("去配置模型", index)
         self.assertNotIn('href="/setup">去配置', index)
 
-    def test_home_surfaces_new_adventure_as_primary_entry(self) -> None:
+    def test_home_prioritizes_continuing_before_creating_new_adventure(self) -> None:
         index = Path("src/one_person_dnd/web/templates/index.html").read_text(encoding="utf-8")
 
         self.assertIn('href="/new">创建新冒险', index)
-        self.assertIn("继续当前会话", index)
+        self.assertIn("继续这场冒险", index)
+        self.assertLess(index.index('href="/game"'), index.index('href="/new"'))
         self.assertLess(index.index('href="/game"'), index.index('href="/saves"'))
 
     def test_new_adventure_generation_shows_long_submit_state(self) -> None:
@@ -53,10 +55,12 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('href="/models">去配置模型', new)
         self.assertIn(".new-adventure__notice-actions", css)
         self.assertIn('data-long-submit', new)
-        self.assertIn('data-long-submit-label="生成中…"', new)
+        self.assertIn('data-long-submit-label="正在铺开世界……"', new)
+        self.assertIn('formaction="/new/propose"', new)
+        self.assertIn("帮我想一套", new)
         self.assertIn('data-long-submit-button', new)
         self.assertIn('data-long-submit-status', new)
-        self.assertIn("正在生成冒险", new)
+        self.assertIn("模型正在构思", new)
         self.assertIn("function initLongSubmitForms()", base)
         self.assertIn('querySelectorAll("[data-long-submit]")', base)
         self.assertIn('querySelector("[data-long-submit-button]")', base)
@@ -72,14 +76,15 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("new-preview-summary", template)
         self.assertIn("new-preview-summary__grid", template)
-        self.assertIn("WorldBible 条目", template)
-        self.assertIn("角色数量", template)
-        self.assertIn("采用后进入游戏", template)
+        self.assertIn("世界设定", template)
+        self.assertIn("同行角色", template)
+        self.assertIn("开场地点或局面", template)
+        self.assertIn("查看技术数据", template)
         self.assertIn("返回修改", template)
         self.assertNotIn(">放弃<", template)
         self.assertIn(".new-preview-summary", css)
         self.assertIn(".new-preview-summary__grid", css)
-        self.assertIn(".new-preview-summary__grid {\n    grid-template-columns: 1fr;", css)
+        self.assertIn(".lore-preview-grid", css)
 
     def test_new_adventure_preview_renders_counts_and_character_json(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
@@ -87,6 +92,9 @@ class TestUITemplates(unittest.TestCase):
 
         html = template.render(
             preview_obj={
+                "adventure_name": "雾港疑云",
+                "chapter_title": "第一章·潮声",
+                "opening_scene": "雾港码头",
                 "world_bible_entries": [
                     {"type": "Location", "title": "雾港", "tags": "港口", "content": "潮湿的旧港。"},
                     {"type": "NPC", "title": "伊莲", "tags": "盟友", "content": "知道密道。"},
@@ -97,11 +105,12 @@ class TestUITemplates(unittest.TestCase):
             character_sheet_json='{\n  "party": [\n    {"name": "阿洛"}\n  ]\n}',
         )
 
-        self.assertIn("WorldBible 条目", html)
-        self.assertIn('class="status-tile__value">2</div>', html)
-        self.assertIn("角色数量", html)
-        self.assertIn('class="status-tile__value">1</div>', html)
+        self.assertIn("世界设定", html)
+        self.assertIn('class="status-tile__value">2 条</div>', html)
+        self.assertIn("同行角色", html)
+        self.assertIn('class="status-tile__value">1 名</div>', html)
         self.assertIn("阿洛", html)
+        self.assertIn("雾港疑云", html)
 
     def test_home_uses_adventure_dashboard_visual_shell(self) -> None:
         index = Path("src/one_person_dnd/web/templates/index.html").read_text(encoding="utf-8")
@@ -109,10 +118,11 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("home-dashboard", index)
         self.assertIn("home-panel home-panel--primary", index)
-        self.assertIn("当前冒险桌面", index)
-        self.assertIn('href="/game">继续当前会话', index)
+        self.assertIn("继续上次旅程", index)
+        self.assertIn('href="/game">继续这场冒险', index)
         self.assertIn('href="/new">创建新冒险', index)
-        self.assertIn('href="/models">配置模型', index)
+        self.assertIn('href="/models"', index)
+        self.assertIn("journey-status-card", index)
         self.assertIn(".home-dashboard", css)
         self.assertIn(".home-panel--primary", css)
 
@@ -121,6 +131,12 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn('rel="icon"', base)
         self.assertIn("data:image/svg+xml", base)
+
+    def test_base_versions_css_asset_to_avoid_stale_ui_cache(self) -> None:
+        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+
+        self.assertIn('href="/static/style.css?v=', base)
+        self.assertNotIn('href="/static/style.css" />', base)
 
     def test_base_has_skip_link_to_main_content(self) -> None:
         base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
@@ -155,8 +171,9 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("panel-section", game)
         self.assertIn("角色卡与变更", game)
         self.assertIn("场景与世界", game)
-        self.assertIn("剧情与会话", game)
+        self.assertIn("剧情与章节", game)
         self.assertIn("系统与高级工具", game)
+        self.assertIn("回合诊断", game)
 
         self.assertLess(game.index('id="character-panel"'), game.index('id="sidebar-form"'))
         self.assertLess(game.index("角色卡与变更"), game.index("场景与世界"))
@@ -243,6 +260,44 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("thread-stack", html)
         self.assertIn(".thread-mini", css)
 
+    def test_game_world_tab_renders_world_bible_entries(self) -> None:
+        env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        template = env.get_template("game.html")
+
+        html = template.render(
+            campaign_id=1,
+            session_id=2,
+            campaign_name="星陨边境",
+            session_title="第一章",
+            current_scene="沉暮酒馆",
+            session_state="",
+            pinned_world_notes="",
+            sessions_list=[{"id": 2, "title": "第一章"}],
+            pending_count=0,
+            cheat_enabled=False,
+            cheat_prompt="",
+            turns=[],
+            open_threads=[],
+            world_bible_entries=[
+                {
+                    "id": 3,
+                    "type": "Location",
+                    "title": "灰烬森林",
+                    "tags": "森林,危险",
+                    "content_preview": "黑灰覆盖的枯死林，中央有一座藤蔓石塔。",
+                }
+            ],
+        )
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        self.assertIn("世界设定", html)
+        self.assertIn("灰烬森林", html)
+        self.assertIn("森林,危险", html)
+        self.assertIn("藤蔓石塔", html)
+        self.assertIn('href="/memory/world"', html)
+        self.assertIn("data-world-bible-summary", html)
+        self.assertIn(".world-entry-stack", css)
+
     def test_game_page_uses_story_first_order_for_existing_turns(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
@@ -297,11 +352,11 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("下一步行动", game)
         self.assertIn('placeholder="描述你的行动…"', game)
         self.assertIn("例如：我特别留意窗外脚步声，或提醒 DM 上回合的一个细节…", game)
-        self.assertIn("例如：正在潜行、带着诅咒、NPC 正在同行…", game)
+        self.assertIn("例如：正在潜行、带着诅咒、某个人物正在同行……", game)
         self.assertIn("世界硬规则/重要关系/禁忌…", game)
         self.assertNotIn('placeholder="描述你的行动..."', game)
         self.assertNotIn("一个细节...", game)
-        self.assertNotIn("NPC 正在同行...", game)
+        self.assertNotIn("NPC 正在同行", game)
         self.assertNotIn("禁忌...", game)
         self.assertNotIn("快捷键：Ctrl/Cmd + Enter", game)
         self.assertIn(".action-composer__header", css)
@@ -472,9 +527,10 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".status-tile__label {\n    display: none;", css)
         self.assertIn(".status-tile__value {\n    font-size: 0.86rem;", css)
         self.assertIn("text-overflow: ellipsis", css)
+        self.assertIn(".page-actions [data-sidebar-toggle] {\n    display: none;", css)
         self.assertIn(".action-composer .textarea {\n    min-height: 64px;", css)
         self.assertIn(".quick-roll-panel {\n    margin-top: 8px;", css)
-        self.assertIn(".chat-card--story-first .chat-history {\n    min-height: clamp(160px, 22vh, 200px);\n    max-height: min(24vh, 220px);", css)
+        self.assertIn(".chat-card--story-first .chat-history {\n    min-height: clamp(130px, 18vh, 170px);\n    max-height: min(20vh, 180px);", css)
         self.assertIn(".chat-card--story-first .play-tools {\n    position: static;", css)
         self.assertIn(".chat-card--story-first {\n    padding-bottom: 12px;", css)
         self.assertIn(".chat-card--story-first .action-composer__kicker {\n    display: none;", css)
@@ -845,14 +901,14 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(
             ".chat-card--story-first .chat-history {\n"
             "    flex: 0 0 auto;\n"
-            "    height: clamp(220px, 32vh, 260px);\n"
-            "    min-height: clamp(220px, 32vh, 260px);\n"
-            "    max-height: clamp(220px, 32vh, 260px);\n"
+            "    height: clamp(180px, 26vh, 190px);\n"
+            "    min-height: clamp(180px, 26vh, 190px);\n"
+            "    max-height: clamp(180px, 26vh, 190px);\n"
             "  }",
             css,
         )
 
-    def test_desktop_story_first_keeps_story_history_full_width(self) -> None:
+    def test_desktop_story_first_allows_resizing_before_wide_desktop(self) -> None:
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("@media (min-width: 981px) {", css)
@@ -865,14 +921,18 @@ class TestUITemplates(unittest.TestCase):
         self.assertNotIn("grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);", css)
         self.assertNotIn("    grid-column: 2;\n    grid-row: 2;", css)
         self.assertIn("    width: 100%;", css)
-        self.assertIn("    min-height: 300px;", css)
+        self.assertIn("    min-height: 0;", css)
+        self.assertIn("    overflow-y: auto;", css)
         self.assertIn(".chat-card--story-first .play-tools {\n    align-content: start;", css)
         self.assertIn("    flex: 0 0 auto;", css)
         self.assertIn("    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);", css)
         self.assertIn(".chat-card--story-first .play-tools .action-composer {\n    padding: 6px;", css)
         self.assertIn(".chat-card--story-first .play-tools .action-composer .textarea {\n    min-height: 48px;", css)
         self.assertIn(".chat-card--story-first .play-tools .quick-roll-panel {\n    padding: 7px 8px;", css)
-        self.assertNotIn("@media (min-width: 981px) and (max-width: 1320px)", css)
+        self.assertIn("@media (max-width: 900px) {\n  .grid--game { grid-template-columns: 1fr; }", css)
+        self.assertIn(".grid:not(.grid--game) {\n    grid-template-columns: 1fr;", css)
+        self.assertNotIn("  .grid {\n    grid-template-columns: 1fr;\n  }", css)
+        self.assertNotIn("@media (max-width: 1440px) {\n  .grid--game-story-first", css)
 
     def test_mobile_story_first_keeps_story_history_readable(self) -> None:
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
@@ -880,8 +940,8 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("@media (max-width: 520px)", css)
         self.assertIn(
             ".chat-card--story-first .chat-history {\n"
-            "    min-height: clamp(160px, 22vh, 200px);\n"
-            "    max-height: min(24vh, 220px);",
+            "    min-height: clamp(130px, 18vh, 170px);\n"
+            "    max-height: min(20vh, 180px);",
             css,
         )
         self.assertNotIn("max-height: 9vh;", css)
@@ -893,30 +953,107 @@ class TestUITemplates(unittest.TestCase):
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("grid--game-story-first", game)
-        self.assertIn(".app-main {\n  max-width: 1760px;", css)
+        self.assertIn(".app-main {\n  max-width: 2160px;", css)
         self.assertIn(
             ".grid--game-story-first {\n"
-            "  grid-template-columns: minmax(1120px, 1fr) minmax(216px, 248px);",
+            "  --game-sidebar-width: 400px;\n"
+            "  grid-template-columns: minmax(560px, 1fr) 10px minmax(340px, var(--game-sidebar-width));",
             css,
         )
         self.assertIn("  gap: 10px;", css)
         self.assertIn(
-            "@media (max-width: 1920px) {\n"
-            "  .grid--game-story-first { grid-template-columns: 1fr; }",
+            "@media (max-width: 900px) {\n"
+            "  .grid--game { grid-template-columns: 1fr; }",
             css,
         )
         self.assertNotIn("@media (max-width: 1680px) {\n  .grid--game-story-first", css)
         self.assertIn(
-            ".grid--game-story-first .sidebar-card { max-height: none; overflow: visible; position: static; }",
+            ".sidebar-card { max-height: none; overflow: visible; position: static; }",
             css,
         )
-        self.assertIn("@media (max-width: 1320px) {\n  .grid--game { grid-template-columns: 1fr; }", css)
+        self.assertNotIn("@media (max-width: 1320px) {\n  .grid--game { grid-template-columns: 1fr; }", css)
         self.assertIn(".chat__msg {\n  border: 1px solid var(--ledger-line);", css)
         self.assertIn("max-width: 100%;", css)
         self.assertIn(".chat__msg--user {\n  align-self: flex-end;\n  max-width: min(96%, 1280px);", css)
         self.assertIn(".chat__msg--assistant {\n  align-self: stretch;\n  width: 100%;", css)
         self.assertIn(".chat__content {\n  line-height: 1.65;", css)
         self.assertNotIn("max-height: 26vh;", css)
+
+    def test_game_layout_exposes_resizable_desktop_split(self) -> None:
+        game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        self.assertIn('data-game-layout', game)
+        self.assertIn('data-game-layout-resizer', game)
+        self.assertIn('role="separator"', game)
+        self.assertIn('aria-orientation="vertical"', game)
+        self.assertIn("调整故事对话和冒险面板宽度", game)
+        self.assertIn('data-game-layout-reset', game)
+        self.assertLess(game.index("chat-card"), game.index("data-game-layout-resizer"))
+        self.assertLess(game.index("data-game-layout-resizer"), game.index("sidebar-card"))
+
+        self.assertIn("--game-sidebar-width", css)
+        self.assertIn(".game-layout-resizer", css)
+        self.assertIn("cursor: col-resize;", css)
+        self.assertIn("body.sidebar-collapsed .game-layout-resizer", css)
+        self.assertIn("@media (max-width: 900px)", css)
+        self.assertIn(".grid--game { grid-template-columns: 1fr; }", css)
+
+    def test_game_layout_resizer_script_persists_and_resets_width(self) -> None:
+        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+
+        self.assertIn('const GAME_LAYOUT_WIDTH_STORAGE_PREFIX = "one_person_dnd.gameSidebarWidth.";', base)
+        self.assertIn("function initGameLayoutResizer()", base)
+        self.assertIn('querySelector("[data-game-layout]")', base)
+        self.assertIn('querySelector("[data-game-layout-resizer]")', base)
+        self.assertIn('querySelector("[data-game-layout-reset]")', base)
+        self.assertIn('--game-sidebar-width', base)
+        self.assertIn('localStorage.setItem(gameLayoutStorageKey(grid),', base)
+        self.assertIn('localStorage.removeItem(gameLayoutStorageKey(grid));', base)
+        self.assertIn('resizer.addEventListener("pointerdown"', base)
+        self.assertIn('resizer.addEventListener("dblclick"', base)
+        self.assertIn('evt.key === "ArrowLeft"', base)
+        self.assertIn("initGameLayoutResizer();", base)
+
+    def test_chat_history_exposes_corner_height_resizer(self) -> None:
+        game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        self.assertIn('class="chat-history-shell"', game)
+        self.assertIn('data-chat-history-shell', game)
+        self.assertIn('data-chat-history-resizable', game)
+        self.assertIn('data-chat-history-resizer', game)
+        self.assertIn('aria-label="调整故事记录高度"', game)
+        self.assertIn('aria-orientation="horizontal"', game)
+        self.assertIn('title="拖拽调整高度，双击复位"', game)
+        self.assertLess(game.index('id="chat-history"'), game.index("data-chat-history-resizer"))
+
+        self.assertIn(".chat-history-shell", css)
+        self.assertIn(".chat-history-resizer", css)
+        self.assertIn("cursor: ns-resize;", css)
+        self.assertIn("body.chat-history-resizing", css)
+        self.assertIn(".chat-card--history-resized", css)
+        self.assertIn(".chat-card--history-resized .chat-history", css)
+        self.assertIn(".chat-card--story-first.chat-card--history-resized .chat-history", css)
+        self.assertIn("height: var(--chat-history-height);", css)
+        self.assertIn("@media (max-width: 520px)", css)
+
+    def test_chat_history_resizer_script_persists_keyboard_and_resets_height(self) -> None:
+        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+
+        self.assertIn('const CHAT_HISTORY_HEIGHT_STORAGE_PREFIX = "one_person_dnd.chatHistoryHeight.";', base)
+        self.assertIn("function initChatHistoryResizer()", base)
+        self.assertIn('querySelector("[data-chat-history-resizable]")', base)
+        self.assertIn('querySelector("[data-chat-history-resizer]")', base)
+        self.assertIn("function canResizeChatHistory(resizer)", base)
+        self.assertIn('chat.style.setProperty("--chat-history-height", nextHeight + "px");', base)
+        self.assertIn('localStorage.setItem(chatHistoryHeightStorageKey(),', base)
+        self.assertIn('localStorage.removeItem(chatHistoryHeightStorageKey());', base)
+        self.assertIn('resizer.addEventListener("pointerdown"', base)
+        self.assertIn('resizer.addEventListener("dblclick"', base)
+        self.assertIn('evt.key !== "ArrowUp" && evt.key !== "ArrowDown"', base)
+        self.assertIn("resetChatHistoryHeight(chat);", base)
+        self.assertIn("initChatHistoryResizer();", base)
 
     def test_game_page_surfaces_pending_review_callout(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -930,19 +1067,134 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".review-callout", css)
         self.assertIn(".review-callout__actions", css)
 
+    def test_game_page_surfaces_world_setup_prompt(self) -> None:
+        game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        self.assertIn("world_setup_prompt.show", game)
+        self.assertIn("world-setup-callout", game)
+        self.assertIn("这局还没有世界观", game)
+        self.assertIn('href="/new"', game)
+        self.assertIn('href="/memory/world/new"', game)
+        self.assertIn('action="/game/world-setup/skip"', game)
+        self.assertIn("继续空白开局", game)
+        self.assertLess(game.index("game-status-strip"), game.index("world-setup-callout"))
+        self.assertLess(game.index("world-setup-callout"), game.index("grid grid--game"))
+        self.assertIn(".world-setup-callout", css)
+
+    def test_hidden_attribute_overrides_component_display_rules(self) -> None:
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        self.assertIn("[hidden] {", css)
+        self.assertIn("display: none !important;", css)
+        self.assertLess(css.index("[hidden] {"), css.index(".review-callout {"))
+
+    def test_models_profiles_use_browse_first_cards(self) -> None:
+        template = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        self.assertIn("model-profile-library", template)
+        self.assertIn("model-profile-card", template)
+        self.assertIn("model-profile-actions", template)
+        self.assertLess(template.index("已有模型"), template.index("添加模型"))
+        self.assertIn(".model-profile-library", css)
+        self.assertIn(".model-profile-card--active", css)
+
+    def test_key_forms_use_explicit_labels_and_safe_autocomplete(self) -> None:
+        game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
+        models = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
+        new = Path("src/one_person_dnd/web/templates/new.html").read_text(encoding="utf-8")
+        character_panel = Path("src/one_person_dnd/web/templates/partials/character_panel.html").read_text(encoding="utf-8")
+        saves = Path("src/one_person_dnd/web/templates/saves.html").read_text(encoding="utf-8")
+
+        self.assertIn('textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow autocomplete="off"', game)
+        self.assertIn('input class="input" name="tags" data-turn-lockable autocomplete="off"', game)
+        self.assertIn('textarea class="input textarea" name="state_block" data-turn-lockable autocomplete="off"', game)
+        self.assertIn('select class="input input--compact" name="session_id" aria-label="切换章节" autocomplete="off"', game)
+        self.assertIn('input class="input" name="current_scene" value="{{ current_scene }}" autocomplete="off"', game)
+
+        self.assertIn('id="deepseek-profile-name"', models)
+        self.assertIn('id="deepseek-api-key"', models)
+        self.assertIn('type="password" name="api_key" required autocomplete="new-password"', models)
+        self.assertIn('type="url" name="base_url" required autocomplete="url"', models)
+        self.assertIn('name="model" required autocomplete="off" spellcheck="false"', models)
+        self.assertIn('type="number" step="0.1" name="timeout_seconds"', models)
+
+        self.assertIn('id="adventure-genre"', new)
+        self.assertIn('type="number" name="character_count"', new)
+        self.assertIn('placeholder="例如：世界里不能复活；主角必须是半精灵游侠；开局在雪国小镇……"', new)
+
+        self.assertIn('input class="input input--compact" type="number" inputmode="numeric" name="hp_delta" value="0" autocomplete="off"', character_panel)
+        self.assertIn('input class="input input--compact" type="number" inputmode="numeric" name="gold_delta" value="0" autocomplete="off"', character_panel)
+        self.assertIn('input class="input" name="reason" autocomplete="off" placeholder="例如：剧情奖励 / 惩罚 / 测试分支"', character_panel)
+        self.assertIn('textarea class="input textarea" name="conditions_text" autocomplete="off"', character_panel)
+        self.assertIn('textarea class="input textarea" name="inventory_text" autocomplete="off"', character_panel)
+        self.assertIn('textarea class="input textarea" name="notes_text" autocomplete="off"', character_panel)
+        self.assertIn('textarea class="input textarea" name="character_sheet" autocomplete="off" spellcheck="false"', character_panel)
+
+        self.assertIn('id="blank-adventure-name" class="input" name="name" required autocomplete="off"', saves)
+        self.assertIn('id="new-chapter-title" class="input" name="title" required autocomplete="off"', saves)
+        self.assertIn('id="new-chapter-scene" class="input" name="current_scene" value="起始" autocomplete="off"', saves)
+        self.assertIn('name="snapshot_name" autocomplete="off" placeholder="例如：进入钟楼前"', saves)
+        self.assertIn('class="input input--compact" name="fork_title" autocomplete="off" placeholder="故事分支标题（可选）"', saves)
+
+    def test_primary_entry_templates_keep_styles_in_css(self) -> None:
+        game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
+        models = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
+        new = Path("src/one_person_dnd/web/templates/new.html").read_text(encoding="utf-8")
+
+        self.assertNotIn("style=", game)
+        self.assertNotIn("style=", models)
+        self.assertNotIn("style=", new)
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+        for class_name in (
+            ".notice__title",
+            ".button--initially-hidden",
+            ".notice--spaced",
+            ".card--spaced",
+            ".field-grid",
+            ".panel-loading",
+            ".recall-preview-shell",
+            ".check-row",
+            ".model-profile-edit",
+        ):
+            self.assertIn(class_name, css)
+
+    def test_live_review_templates_keep_spacing_in_css(self) -> None:
+        character_panel = Path("src/one_person_dnd/web/templates/partials/character_panel.html").read_text(encoding="utf-8")
+        saves = Path("src/one_person_dnd/web/templates/saves.html").read_text(encoding="utf-8")
+
+        self.assertNotIn("style=", character_panel)
+        self.assertNotIn("style=", saves)
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+        for class_name in (
+            ".stat-pills--spaced",
+            ".muted--spaced",
+            ".label--flush",
+            ".advanced--spaced",
+            ".advanced--compact",
+            ".pre--wrap",
+            ".row--compact-spaced",
+            ".muted--compact-spaced",
+        ):
+            self.assertIn(class_name, css)
+
     def test_medium_viewport_keeps_review_chrome_compact(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。", game)
         self.assertIn(
-            "@media (max-width: 1320px) {\n"
+            "@media (max-width: 900px) {\n"
             "  .grid--game { grid-template-columns: 1fr; }\n"
+            "  .game-layout-resizer { display: none; }\n"
             "  .sidebar-card { max-height: none; overflow: visible; position: static; }\n"
+            "}\n\n"
+            "@media (max-width: 1320px) {\n"
             "  .game-status-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }\n"
             "  .status-tile { padding: 6px 8px; }\n"
-            "  .status-tile__label { display: none; }\n"
-            "  .status-tile__value { font-size: 0.9rem; line-height: 1.25; margin-top: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n"
+            "  .status-tile__label { display: block; }\n"
+            "  .status-tile__value { font-size: 0.9rem; line-height: 1.25; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n"
             "  .review-callout { gap: 10px; margin-top: 8px; padding: 8px 10px; }\n",
             css,
         )
@@ -1027,9 +1279,11 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("属性：DEX 14，WIS 13", html)
         self.assertIn("状态：中毒、隐匿", html)
+        self.assertIn("物品：短弓", html)
         self.assertIn("备注：害怕深水。", html)
         self.assertIn('hx-post="/character/quick_state"', html)
         self.assertIn('name="conditions_text"', html)
+        self.assertIn('name="inventory_text"', html)
         self.assertIn('name="notes_text"', html)
 
     def test_character_panel_refresh_syncs_pending_review_count(self) -> None:
@@ -1046,18 +1300,19 @@ class TestUITemplates(unittest.TestCase):
     def test_models_edit_form_does_not_render_saved_api_key_value(self) -> None:
         template = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
 
+        self.assertNotIn('value="{{ profile.api_key', template)
         self.assertNotIn('value="{{ p.api_key', template)
-        self.assertIn('placeholder="留空则保持原 Key"', template)
+        self.assertIn('placeholder="留空则保持原密钥"', template)
         self.assertIn('type="password" name="api_key"', template)
 
     def test_models_test_action_shows_progress_indicator(self) -> None:
         template = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
 
         self.assertIn('hx-post="/models/test"', template)
-        self.assertIn('hx-target="#test-result-{{ p.id }}"', template)
-        self.assertIn('hx-indicator="#test-loading-{{ p.id }}"', template)
-        self.assertIn('id="test-loading-{{ p.id }}"', template)
-        self.assertIn("测试中…", template)
+        self.assertIn('hx-target="#test-result-{{ profile.id }}"', template)
+        self.assertIn('hx-indicator="#test-loading-{{ profile.id }}"', template)
+        self.assertIn('id="test-loading-{{ profile.id }}"', template)
+        self.assertIn("测试中……", template)
         self.assertIn('class="htmx-indicator spinner"', template)
 
     def test_dm_choices_are_clickable_actions(self) -> None:
@@ -1159,9 +1414,9 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".action-assessment", css)
         self.assertIn(".assessment-pill--warn", css)
 
-    def test_chat_turn_renders_dm_critic_warnings_for_new_turns(self) -> None:
+    def test_turn_diagnostics_renders_dm_critic_warnings_outside_story(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
-        template = env.get_template("partials/chat_turn.html")
+        template = env.get_template("partials/turn_diagnostics.html")
 
         html = template.render(
             turn={
@@ -1174,16 +1429,15 @@ class TestUITemplates(unittest.TestCase):
         )
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
-        self.assertIn("dm-review", html)
-        self.assertIn("DM 审查", html)
-        self.assertIn("选项数量不适合继续游玩", html)
+        self.assertIn("turn-diagnostic", html)
+        self.assertIn("行动建议数量不适合继续游玩", html)
         self.assertIn('title="choice_count_out_of_range"', html)
         self.assertNotIn(">choice_count_out_of_range<", html)
         self.assertIn(".dm-review", css)
 
-    def test_chat_turn_renders_response_warnings_for_new_turns(self) -> None:
+    def test_turn_diagnostics_renders_response_warnings_outside_story(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
-        template = env.get_template("partials/chat_turn.html")
+        template = env.get_template("partials/turn_diagnostics.html")
 
         html = template.render(
             turn={
@@ -1201,10 +1455,9 @@ class TestUITemplates(unittest.TestCase):
         )
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
-        self.assertIn("response-review", html)
-        self.assertIn("反应评估", html)
-        self.assertIn("选项重复", html)
-        self.assertIn("选项过于笼统", html)
+        self.assertIn("turn-diagnostic", html)
+        self.assertIn("行动建议重复", html)
+        self.assertIn("行动建议过于笼统", html)
         self.assertIn('title="duplicate_choices"', html)
         self.assertIn('title="non_actionable_choice"', html)
         self.assertNotIn(">duplicate_choices<", html)
@@ -1327,7 +1580,7 @@ class TestUITemplates(unittest.TestCase):
     def test_game_recall_preview_empty_state_describes_all_context_sources(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
 
-        self.assertIn('<div class="muted" style="font-weight: 700;">本回合参考</div>', game)
+        self.assertIn('<div class="muted recall-preview-title">本回合参考</div>', game)
         self.assertIn(
             "（发送一次行动后显示 DM 使用的角色、世界、剧情线、故事记忆、掷骰和行动判定）",
             game,
@@ -1373,16 +1626,18 @@ class TestUITemplates(unittest.TestCase):
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertNotIn('class="card" style=', saves)
-        self.assertIn("section-block", saves)
+        self.assertIn("management-grid", saves)
+        self.assertIn("management-section", saves)
         self.assertIn("snapshot-card", saves)
-        self.assertIn(".section-block", css)
+        self.assertIn(".management-grid", css)
         self.assertIn(".snapshot-card", css)
 
     def test_threads_close_action_is_not_duplicated_inside_update_form(self) -> None:
         threads = Path("src/one_person_dnd/web/templates/threads.html").read_text(encoding="utf-8")
 
         self.assertEqual(threads.count('action="/threads/close"'), 1)
-        self.assertNotIn("<form method=\"post\" action=\"/threads/close\">\n                <input", threads)
+        update_form = threads.split('action="/threads/update"', 1)[1].split("</form>", 1)[0]
+        self.assertNotIn('action="/threads/close"', update_form)
 
     def test_css_declares_adventure_ledger_visual_system(self) -> None:
         base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
@@ -1410,5 +1665,6 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".campaign-list", css)
         self.assertIn(".nav", css)
         self.assertIn("flex-wrap: wrap", css)
-        self.assertIn(".grid {\n    grid-template-columns: 1fr;", css)
+        self.assertIn(".grid:not(.grid--game) {\n    grid-template-columns: 1fr;", css)
+        self.assertIn("@media (max-width: 900px) {\n  .grid--game { grid-template-columns: 1fr; }", css)
         self.assertIn("overflow-x: auto", css)

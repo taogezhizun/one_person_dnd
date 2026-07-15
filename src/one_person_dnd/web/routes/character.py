@@ -323,6 +323,7 @@ def character_quick_adjust(
 def character_quick_state(
     request: Request,
     conditions_text: str = Form(""),
+    inventory_text: Any = Form(None),
     notes_text: str = Form(""),
 ) -> HTMLResponse:
     paths = ensure_app_dirs()
@@ -339,6 +340,8 @@ def character_quick_state(
 
         member = _primary_character_target(obj)
         member["conditions"] = _split_text_list(conditions_text)
+        if isinstance(inventory_text, str):
+            member["inventory"] = _split_text_list(inventory_text)
         member["notes"] = (notes_text or "").strip()
 
         updated = json.dumps(obj, ensure_ascii=False, indent=2)
@@ -351,6 +354,7 @@ def character_quick_state(
             detail_json_text=json.dumps(
                 {
                     "conditions": member["conditions"],
+                    "inventory": member.get("inventory", []),
                     "notes_length": len(member["notes"]),
                 },
                 ensure_ascii=False,
@@ -359,4 +363,4 @@ def character_quick_state(
         conn.commit()
     finally:
         conn.close()
-    return _render_panel(request, session_id=session_id, notice_message="已保存状态备注。")
+    return _render_panel(request, session_id=session_id, notice_message="已保存状态、物品与备注。")
