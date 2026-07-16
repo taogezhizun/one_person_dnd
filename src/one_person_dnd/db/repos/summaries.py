@@ -73,3 +73,42 @@ def select_journal_range(conn: sqlite3.Connection, *, session_id: int, start_tur
         """,
         (session_id, start_turn, end_turn),
     ).fetchall()
+
+
+def list_all_for_session(conn: sqlite3.Connection, *, session_id: int) -> list[dict]:
+    """Full-column, deterministically ordered dump used for snapshot narrative capture."""
+    rows = conn.execute(
+        """
+        SELECT id, session_id, level, start_turn, end_turn, summary, created_at
+        FROM session_summaries
+        WHERE session_id = ?
+        ORDER BY id ASC
+        """,
+        (session_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_all_for_session(conn: sqlite3.Connection, *, session_id: int) -> None:
+    """Used only by snapshot restore's narrative replace; caller owns the transaction."""
+    conn.execute("DELETE FROM session_summaries WHERE session_id = ?", (session_id,))
+
+
+def bulk_insert(conn: sqlite3.Connection, *, session_id: int, rows: list[dict]) -> None:
+    """Re-insert rows captured by list_all_for_session, preserving original ids."""
+    for row in rows:
+        conn.execute(
+            """
+            INSERT INTO session_summaries(id, session_id, level, start_turn, end_turn, summary, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["id"],
+                session_id,
+                row["level"],
+                row["start_turn"],
+                row["end_turn"],
+                row["summary"],
+                row["created_at"],
+            ),
+        )

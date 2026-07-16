@@ -65,3 +65,16 @@ def get_request(conn: sqlite3.Connection, *, request_id: int, session_id: int) -
         (request_id, session_id),
     ).fetchone()
     return dict(row) if row else None
+
+
+def delete_all_pending_for_session(conn: sqlite3.Connection, *, session_id: int) -> None:
+    """
+    Used only by snapshot restore's narrative replace: pending requests reference
+    turn_index / thread state that may no longer exist after the rewind, so they
+    are discarded rather than replayed. Applied/rejected requests are left as an
+    audit trail; caller owns the transaction.
+    """
+    conn.execute(
+        "DELETE FROM state_change_requests WHERE session_id = ? AND status = 'pending'",
+        (session_id,),
+    )

@@ -6,7 +6,7 @@ from pathlib import Path
 from one_person_dnd.db.conn import get_connection
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def _apply_schema_v1(conn: sqlite3.Connection) -> None:
@@ -253,6 +253,20 @@ def _apply_schema_v8(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_schema_v9(conn: sqlite3.Connection) -> None:
+    """
+    Session snapshots capture the session's full narrative (turn_logs,
+    story_journal_entries, plot_threads, session_summaries) as JSON so that
+    restore can be a faithful, reversible rewind of the whole session instead
+    of only scene/state/character fields. Nullable so existing snapshot rows
+    (captured before this feature) are detectable as narrative_json IS NULL
+    and fall back to the previous state-only restore behavior.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(session_snapshots);").fetchall()}
+    if "narrative_json" not in cols:
+        conn.execute("ALTER TABLE session_snapshots ADD COLUMN narrative_json TEXT;")
+
+
 def init_db(db_path: Path) -> None:
     """
     Initialize (and lightly migrate) the SQLite database using PRAGMA user_version.
@@ -287,6 +301,9 @@ def init_db(db_path: Path) -> None:
         if current_version < 8:
             _apply_schema_v8(conn)
             current_version = 8
+        if current_version < 9:
+            _apply_schema_v9(conn)
+            current_version = 9
 
         conn.execute(f"PRAGMA user_version = {current_version};")
         conn.commit()

@@ -80,7 +80,7 @@ The project intentionally keeps runtime files under the repository root so a who
 
 ## Data Model
 
-Schema version is `8` in `src/one_person_dnd/db/schema.py`.
+Schema version is `9` in `src/one_person_dnd/db/schema.py`.
 
 | Table | Purpose |
 | --- | --- |
@@ -95,7 +95,7 @@ Schema version is `8` in `src/one_person_dnd/db/schema.py`.
 | `state_change_requests` | Pending DM-suggested JSON changes for player approval. |
 | `llm_profiles` | Saved model configurations. |
 | `app_settings` | Small key/value settings, including active LLM profile id. |
-| `session_snapshots` | Manual snapshots used for restore and fork. |
+| `session_snapshots` | Manual snapshots used for restore and fork. `narrative_json` captures the session's entire `turn_logs`/`story_journal_entries`/`plot_threads`/`session_summaries` set at snapshot time (nullable; `NULL` for snapshots taken before this column existed). |
 | `session_cheats` | Session-scoped cheat directive injected into prompt. |
 | `manual_change_logs` | Audit log for player/manual state operations. |
 
@@ -169,7 +169,9 @@ The main game UI is intentionally play-first rather than admin-first. The home p
 
 `/new` has two model-assisted stages. `POST /new/propose` turns a free-form brief into an editable adventure name, first chapter title, premise, and preferences. `POST /new/generate` produces the readable world and character preview. Neither stage mutates the active save. `POST /new/apply` creates a new campaign and first session in one transaction, writes the approved WorldBible entries and character sheet into that new scope, and then selects it. The previously active campaign/session remains intact.
 
-Snapshot restore is deliberately reversible. Before `POST /saves/snapshot/restore` applies the selected snapshot, it captures the current campaign/session state as an automatic safety snapshot. The confirmation UI explains that the current state will change and identifies the safety path for undoing an accidental restore.
+Snapshot restore is a full, reversible rewind of the session narrative, not just scene/character state. Every snapshot (manual or the automatic pre-restore safety snapshot, both created through `web.routes.saves._create_session_snapshot`) captures the session's entire `turn_logs`, `story_journal_entries`, `plot_threads`, and `session_summaries` into `session_snapshots.narrative_json` via `_capture_narrative_json()`. `POST /saves/session/restore` first creates an automatic safety snapshot of the current state (including its own narrative capture), then restores scene/session_state/pinned_world_notes and the character sheet as before, and finally — inside the same transaction — replaces the session's `turn_logs`/`story_journal_entries`/`plot_threads`/`session_summaries` with the target snapshot's captured set via `_restore_narrative()`, and deletes any pending `state_change_requests` for the session (they may reference turn/thread state that no longer exists after the rewind; applied/rejected requests are kept as an audit trail). Because `turn_logs.get_next_turn_index()` reads `MAX(turn_index)` from the now-rewound table, the next turn continues correctly from the restored point. The whole restore (safety snapshot + state restore + narrative replace) commits once; any error rolls back so a partial rewind cannot corrupt the session. Snapshots taken before `narrative_json` existed have it `NULL`, and restoring one falls back to the legacy state-only restore (turn_logs etc. are left untouched) rather than deleting narrative that was never captured. The confirmation UI explains that restore rewinds the whole session (story, turns, threads) to that point and that the automatic safety snapshot makes it reversible.
+
+`POST /saves/session/fork` reads a snapshot's scene/state/character fields to seed a new session but does not currently copy `narrative_json` into the forked session's `turn_logs` etc.; a forked session starts with an empty narrative even when branching from a mid-story snapshot. This is pre-existing behavior and out of scope for the restore rewind.
 
 ## DM Output Protocol
 

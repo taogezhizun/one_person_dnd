@@ -49,3 +49,43 @@ def insert_story_journal_entry(
     )
     row = conn.execute("SELECT last_insert_rowid()").fetchone()
     return int(row[0])
+
+
+def list_all_for_session(conn: sqlite3.Connection, *, session_id: int) -> list[dict]:
+    """Full-column, deterministically ordered dump used for snapshot narrative capture."""
+    rows = conn.execute(
+        """
+        SELECT id, session_id, scene_id, summary, open_threads, key_facts, turn_index, created_at
+        FROM story_journal_entries
+        WHERE session_id = ?
+        ORDER BY id ASC
+        """,
+        (session_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_all_for_session(conn: sqlite3.Connection, *, session_id: int) -> None:
+    """Used only by snapshot restore's narrative replace; caller owns the transaction."""
+    conn.execute("DELETE FROM story_journal_entries WHERE session_id = ?", (session_id,))
+
+
+def bulk_insert(conn: sqlite3.Connection, *, session_id: int, rows: list[dict]) -> None:
+    """Re-insert rows captured by list_all_for_session, preserving original ids."""
+    for row in rows:
+        conn.execute(
+            """
+            INSERT INTO story_journal_entries(id, session_id, scene_id, summary, open_threads, key_facts, turn_index, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["id"],
+                session_id,
+                row.get("scene_id"),
+                row["summary"],
+                row.get("open_threads"),
+                row.get("key_facts"),
+                row.get("turn_index"),
+                row["created_at"],
+            ),
+        )

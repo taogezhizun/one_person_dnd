@@ -64,7 +64,7 @@ python -m unittest discover -s tests -p "test*.py"
 - 行动输入的 Cmd/Ctrl+Enter 快捷提交必须复用发送按钮状态：空输入、DM 未连接或回合请求进行中时不能通过快捷键绕过禁用按钮。
 - DM `CHOICES` 在历史回合 partial 和流式 final renderer 中都应渲染为 `data-choice-action` 按钮；最新回合建议要同步提升到输入区附近，历史回合建议默认收起。`dice_events`、`action_assessment`、`critic_warnings` 和 `response_warnings` 也要在服务器渲染 partial 和流式 final renderer 中保持一致；`dice_events` 显示在玩家行动下方，critic/response warnings 显示在“系统”标签的诊断区，不要塞进 DM 叙事。
 - `/new` 的模型提案和完整生成都只是预览；只有 `/new/apply` 才创建新的 campaign 与首个 session，并写入对应世界设定和角色卡。不得复用或覆盖当前 campaign/session。提案中的冒险名、首章标题和生成后的可读预览都应允许玩家编辑，原始 JSON 只放高级区。
-- `/saves/snapshot/restore` 在应用目标快照前必须先为当前 campaign/session 创建自动安全快照；恢复确认文案要明确说明当前状态将变化以及可以用该安全快照撤回。
+- `/saves/session/restore` 是整个 session 叙事的完整回退，不只是场景/角色状态：`session_snapshots.narrative_json`（由 `saves._capture_narrative_json()` 写入）保存该 session 当时全部的 `turn_logs`/`story_journal_entries`/`plot_threads`/`session_summaries`；恢复时先在应用目标快照前为当前 campaign/session 创建自动安全快照（同样会捕获叙事，因此可撤回），再恢复场景/角色状态，最后在同一事务内用 `saves._restore_narrative()` 整体替换这四张表并清空该 session 的待处理 `state_change_requests`（已应用/已拒绝的保留作审计）；任何一步失败都要整体回滚，不能半途改表。`narrative_json` 为 NULL 的旧快照（迁移前生成）必须退回到仅恢复状态、不删除叙事的旧逻辑，不能因为没有捕获过叙事就误删。恢复确认文案要明确说明本次恢复会连同回合记录、故事记忆、剧情线一起倒回到该时间点，以及可以用自动安全快照撤回。`/saves/session/fork` 目前只复制快照的场景/角色字段，不复制 `narrative_json`；分叉出的新 session 叙事从空开始，这是既有行为，不在本次回退范围内。
 - `/setup` 只作为兼容入口重定向到 `/models`，不要恢复第二套模型配置表单，也不要通过旧模板回显已保存 API Key。
 - `/threads` 页面不要嵌套 `<form>`；关闭/重开等状态操作应是更新表单之外的独立表单。
 - `/threads` 页面仍是手动维护入口；DM 建议的 `THREAD_UPDATES` 只能通过玩家确认后的 pending request 应用。

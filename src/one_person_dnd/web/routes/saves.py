@@ -11,9 +11,12 @@ from one_person_dnd.db.repos import (
     campaigns,
     character_sheets,
     manual_change_logs,
+    plot_threads,
     session_snapshots,
     sessions,
+    state_change_requests,
     story_journal,
+    summaries,
     turn_logs,
 )
 from one_person_dnd.domain.characters import summarize_character_sheet
@@ -22,6 +25,45 @@ from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import get_current_campaign_session, load_active_llm_config, templates
 
 router = APIRouter()
+
+
+def _capture_narrative_json(conn, *, session_id: int) -> str:
+    """
+    Serialize the session's entire current narrative (all turn_logs,
+    story_journal_entries, plot_threads, session_summaries rows) so a later
+    restore can transactionally replace the session's narrative with this
+    exact captured set, not just scene/character state. See
+    `_restore_narrative` for the inverse operation.
+    """
+    return json.dumps(
+        {
+            "turn_logs": turn_logs.list_all_for_session(conn, session_id=session_id),
+            "story_journal_entries": story_journal.list_all_for_session(conn, session_id=session_id),
+            "plot_threads": plot_threads.list_all_for_session(conn, session_id=session_id),
+            "session_summaries": summaries.list_all_for_session(conn, session_id=session_id),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _restore_narrative(conn, *, session_id: int, narrative_json: str) -> None:
+    """
+    Replace the session's turn_logs/story_journal_entries/plot_threads/
+    session_summaries with a snapshot's captured narrative, and drop pending
+    state_change_requests (they may reference turn/thread state that no
+    longer exists after the rewind). Applied/rejected requests are left
+    intact as an audit trail. Caller owns the transaction (commit/rollback).
+    """
+    data = json.loads(narrative_json)
+    turn_logs.delete_all_for_session(conn, session_id=session_id)
+    turn_logs.bulk_insert(conn, session_id=session_id, rows=data.get("turn_logs", []))
+    story_journal.delete_all_for_session(conn, session_id=session_id)
+    story_journal.bulk_insert(conn, session_id=session_id, rows=data.get("story_journal_entries", []))
+    plot_threads.delete_all_for_session(conn, session_id=session_id)
+    plot_threads.bulk_insert(conn, session_id=session_id, rows=data.get("plot_threads", []))
+    summaries.delete_all_for_session(conn, session_id=session_id)
+    summaries.bulk_insert(conn, session_id=session_id, rows=data.get("session_summaries", []))
+    state_change_requests.delete_all_pending_for_session(conn, session_id=session_id)
 
 
 def _create_session_snapshot(
@@ -47,6 +89,7 @@ def _create_session_snapshot(
         session_state=(session_row["session_state"] or "").strip(),
         pinned_world_notes=(session_row["pinned_world_notes"] or "").strip(),
         character_sheet_json=character_sheets.get_character_sheet(conn, session_id=session_id),
+        narrative_json=_capture_narrative_json(conn, session_id=session_id),
     )
     return snapshot_id, turn_index
 
@@ -272,6 +315,19 @@ def saves_session_restore(
             session_id=session_id,
             json_text=(snap.get("character_sheet_json") or "").strip(),
         )
+
+        # Full rewind: replace turn_logs/story_journal_entries/plot_threads/
+        # session_summaries with the snapshot's captured narrative, so the
+        # whole session narrative (not just scene/character state) matches
+        # the restored point. Snapshots taken before this feature existed
+        # have narrative_json IS NULL; for those we deliberately fall back to
+        # the legacy state-only restore above and leave turn_logs etc. alone
+        # rather than deleting narrative we never captured a replacement for.
+        narrative_json = snap.get("narrative_json")
+        narrative_restored = bool(narrative_json)
+        if narrative_restored:
+            _restore_narrative(conn, session_id=session_id, narrative_json=narrative_json)
+
         manual_change_logs.insert_log(
             conn,
             session_id=session_id,
@@ -283,11 +339,15 @@ def saves_session_restore(
                     "snapshot_name": target_name,
                     "safety_snapshot_id": safety_snapshot_id,
                     "safety_turn_index": safety_turn_index,
+                    "narrative_restored": narrative_restored,
                 },
                 ensure_ascii=False,
             ),
         )
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
