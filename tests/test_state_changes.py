@@ -63,3 +63,34 @@ class TestStateChanges(unittest.TestCase):
         self.assertEqual(preview.summary, "无法预览变更")
         self.assertTrue(preview.lines)
         self.assertIn("JSON", preview.lines[0])
+
+    def test_merge_scalar_list_shrinks_to_remove_item(self) -> None:
+        base = {"inventory": ["剑", "盾", "药水"]}
+        delta = {"inventory": ["剑", "盾"]}
+
+        merged = merge_state_delta(base, delta)
+
+        self.assertEqual(merged["inventory"], ["剑", "盾"])
+
+        preview = preview_state_delta(
+            json.dumps(base, ensure_ascii=False),
+            json.dumps(delta, ensure_ascii=False),
+        )
+        self.assertTrue(preview.ok)
+        self.assertIn("物品：剑、盾、药水 -> 剑、盾", preview.lines)
+
+    def test_merge_scalar_list_replaces_to_empty(self) -> None:
+        base = {"inventory": ["剑", "盾", "药水"]}
+        delta = {"inventory": []}
+
+        merged = merge_state_delta(base, delta)
+
+        self.assertEqual(merged["inventory"], [])
+
+    def test_merge_party_dict_list_partial_update_preserves_other_fields(self) -> None:
+        base = {"party": [{"name": "A", "hp": 10, "gold": 5}]}
+        delta = {"party": [{"hp": 8}]}
+
+        merged = merge_state_delta(base, delta)
+
+        self.assertEqual(merged["party"][0], {"name": "A", "hp": 8, "gold": 5})

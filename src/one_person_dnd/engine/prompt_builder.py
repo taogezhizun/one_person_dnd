@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from one_person_dnd.context.pack import ContextPack
+from one_person_dnd.engine import protocol
 from one_person_dnd.llm import ChatMessage
 
 
@@ -22,18 +23,18 @@ def build_dm_messages(
         "你是 Dungeon Master（DM）。\n"
         "硬规则：不得改写或违反世界设定（WorldBible）。不得替玩家做决定，只能给出选项。\n"
         "输出必须严格按以下四段分隔符输出（分隔符单独占一行，大小写一致，前后不要加任何符号/加粗）：\n"
-        "===NARRATION===\n"
+        f"{protocol.NARRATION}\n"
         "(这里写叙事，使用 Markdown 也可以)\n"
-        "===CHOICES===\n"
+        f"{protocol.CHOICES}\n"
         "(这里给玩家 3-6 条可选行动，每条一行，以 - 开头)\n"
-        "===DM_NOTES===\n"
+        f"{protocol.DM_NOTES}\n"
         "(这里写给系统看的 DM 备注，可简短)\n"
-        "===MEMORY===\n"
+        f"{protocol.MEMORY}\n"
         "(这里写建议写入剧情摘要的要点，可简短)\n"
         "你可以在最后追加可选段（如果需要）：\n"
-        "===STATE_DELTA===\n"
+        f"{protocol.STATE_DELTA}\n"
         "(JSON，对角色卡/物品/HP/金币等的变更建议；留空也可以)\n"
-        "===THREAD_UPDATES===\n"
+        f"{protocol.THREAD_UPDATES}\n"
         '(JSON，对主线线程的更新建议；留空也可以。格式必须是 {"updates":[...]}。'
         '更新已有线程用 {"id":1,"summary":"...","next_step":"...","status":"open"}；'
         '新建线程用 {"title":"...","priority":1,"summary":"...","next_step":"...","tags":"主线"}。'

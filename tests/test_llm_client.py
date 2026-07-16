@@ -1,7 +1,11 @@
 import unittest
 
 from one_person_dnd.config import LLMConfig
-from one_person_dnd.llm.client import OpenAICompatClient, create_llm_client
+from one_person_dnd.llm.client import (
+    OpenAICompatClient,
+    create_llm_client,
+    redact_llm_error_body,
+)
 
 
 class TestOpenAICompatClient(unittest.TestCase):
@@ -34,3 +38,33 @@ class TestOpenAICompatClient(unittest.TestCase):
         self.assertIsInstance(c, OpenAICompatClient)
         self.assertEqual(c._endpoint(), "https://api.deepseek.com/v1/chat/completions")
         self.assertEqual(c._headers()["Authorization"], "Bearer k")
+
+
+class TestRedactLLMErrorBody(unittest.TestCase):
+    def test_redacts_bearer_token(self) -> None:
+        redacted = redact_llm_error_body("401 Unauthorized: Authorization: Bearer sk-secret123abc")
+        self.assertNotIn("sk-secret123abc", redacted)
+        self.assertIn("Bearer [REDACTED]", redacted)
+
+    def test_redacts_standalone_api_key(self) -> None:
+        redacted = redact_llm_error_body('{"error":"invalid key sk-ABCDEF0123456789"}')
+        self.assertNotIn("sk-ABCDEF0123456789", redacted)
+        self.assertIn("[REDACTED]", redacted)
+
+    def test_truncates_long_body_with_marker(self) -> None:
+        redacted = redact_llm_error_body("x" * 900, max_chars=500)
+        self.assertLessEqual(len(redacted), 500 + len("…(truncated)"))
+        self.assertTrue(redacted.endswith("…(truncated)"))
+
+    def test_redaction_runs_before_truncation(self) -> None:
+        # A secret straddling the cutoff must not be half-leaked: redaction first.
+        body = ("a" * 495) + "Bearer sk-tail-secret-value"
+        redacted = redact_llm_error_body(body, max_chars=500)
+        self.assertNotIn("sk-tail-secret-value", redacted)
+
+    def test_preserves_ordinary_error_text(self) -> None:
+        body = '{"error":{"message":"model not found","type":"invalid_request_error"}}'
+        self.assertEqual(redact_llm_error_body(body), body)
+
+    def test_handles_empty_body(self) -> None:
+        self.assertEqual(redact_llm_error_body(""), "")

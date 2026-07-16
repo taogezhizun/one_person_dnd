@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from one_person_dnd.engine import protocol
+
 
 @dataclass(frozen=True)
 class DMStructuredResponse:
@@ -36,14 +38,7 @@ def parse_dm_text(text: str) -> DMStructuredResponse:
 
     def _parse_by_delimiters(src: str) -> DMStructuredResponse | None:
         lines = src.splitlines()
-        keys = {
-            "===NARRATION===": "narration",
-            "===CHOICES===": "choices",
-            "===DM_NOTES===": "dm_notes",
-            "===MEMORY===": "memory_suggestions",
-            "===STATE_DELTA===": "state_delta_json",
-            "===THREAD_UPDATES===": "thread_updates_json",
-        }
+        keys = dict(protocol.DELIMITER_FIELDS)
         current: str | None = None
         buf: dict[str, list[str]] = {v: [] for v in keys.values()}
 

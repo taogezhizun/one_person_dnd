@@ -15,7 +15,7 @@ from one_person_dnd.context.selection import select_recent_turn_messages
 from one_person_dnd.domain.actions import ActionAssessment, PlayerAction
 from one_person_dnd.engine.dice import DiceEvent
 from one_person_dnd.engine.orchestrator import TurnResult
-from one_person_dnd.engine.parser import parse_dm_text
+from one_person_dnd.engine.parser import DMStructuredResponse, parse_dm_text
 from one_person_dnd.llm import ChatMessage
 
 logger = logging.getLogger("one_person_dnd.agents.pipeline")
@@ -122,32 +122,73 @@ class TurnPipeline:
         recalled_context: list[dict] | None = None,
         action_assessment: ActionAssessment | None = None,
     ) -> TurnResult:
-        critic_result = self.critic.run(dm_raw)
-        dm_struct = parse_dm_text(dm_raw)
-        if "malformed_state_delta" in critic_result.warnings:
-            logger.debug(
-                "critic_suppressed_state_delta session=%s warnings=%s",
-                action.session_id,
-                ",".join(critic_result.warnings),
-            )
-            dm_struct = replace(dm_struct, state_delta_json="")
-        response_result = self.response_evaluator.run(dm_struct)
-        result = self.state_keeper.persist(
+        """
+        Two-phase persistence so a player never sees a completed DM turn on
+        screen that then silently vanishes after a refresh.
+
+        Phase 1 (raw, durable): commit player_text + raw dm_text + dice_events via
+        state_keeper.persist_raw(). This is the exact turn the player already saw
+        streamed to them, so it must land before anything else is attempted.
+
+        Phase 2 (enrichment, best-effort): critic/response-evaluator checks, the
+        parsed choices, state-delta/thread-update review requests, story journal,
+        and summary rollup. If anything here raises (sqlite lock, unexpected
+        dm_struct shape, rollup error, ...), it is logged and swallowed -- the
+        already-committed raw turn from phase 1 is never erased or hidden, we just
+        degrade to a best-effort parsed narration with no warnings/review deltas.
+        """
+        turn_index, safe_dice_events = self.state_keeper.persist_raw(
             conn,
             session_id=action.session_id,
             player_text=action.text,
             dm_raw=dm_raw,
-            dm_struct=dm_struct,
-            recalled_world=recalled_world,
-            recalled_context=recalled_context,
             dice_events=dice_events,
         )
-        conn.commit()
-        return replace(
-            result,
+
+        try:
+            critic_result = self.critic.run(dm_raw)
+            dm_struct = parse_dm_text(dm_raw)
+            if "malformed_state_delta" in critic_result.warnings:
+                logger.debug(
+                    "critic_suppressed_state_delta session=%s warnings=%s",
+                    action.session_id,
+                    ",".join(critic_result.warnings),
+                )
+                dm_struct = replace(dm_struct, state_delta_json="")
+            response_result = self.response_evaluator.run(dm_struct)
+            self.state_keeper.persist_enrichment(
+                conn,
+                session_id=action.session_id,
+                turn_index=turn_index,
+                dm_struct=dm_struct,
+            )
+            conn.commit()
+            critic_warnings = list(critic_result.warnings)
+            response_warnings = list(response_result.warnings)
+        except Exception:
+            conn.rollback()
+            logger.exception(
+                "turn_enrichment_failed session=%s turn=%s; raw turn log already committed",
+                action.session_id,
+                turn_index,
+            )
+            try:
+                dm_struct = parse_dm_text(dm_raw)
+            except Exception:
+                dm_struct = DMStructuredResponse(narration=dm_raw, choices=[], dm_notes="", memory_suggestions="")
+            critic_warnings = []
+            response_warnings = []
+
+        return TurnResult(
+            turn_index=turn_index,
+            dm_raw_text=dm_raw,
+            dm=dm_struct,
+            recalled_world=recalled_world,
+            dice_events=safe_dice_events,
+            recalled_context=list(recalled_context or []),
             action_assessment=action_assessment,
-            critic_warnings=list(critic_result.warnings),
-            response_warnings=list(response_result.warnings),
+            critic_warnings=critic_warnings,
+            response_warnings=response_warnings,
         )
 
     def _build_playability_repair_prompt(

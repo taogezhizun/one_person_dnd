@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from one_person_dnd.agents.pipeline import TurnPipeline
+from one_person_dnd.agents.state_keeper import StateKeeperAgent
 from one_person_dnd.config import MemoryConfig
 from one_person_dnd.db.conn import get_connection
 from one_person_dnd.db.repos import campaigns, sessions, state_change_requests, world_bible
@@ -351,6 +352,78 @@ class TestTurnPipeline(unittest.TestCase):
             self.assertEqual(result.response_warnings, [])
             self.assertIn("观察守卫腰间是否还有备用钥匙", row["dm_text"])
             self.assertNotIn("- 继续\n- 继续", row["dm_text"])
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+
+class FailingEnrichmentStateKeeper(StateKeeperAgent):
+    """Simulates a phase-2 failure (e.g. sqlite lock, rollup bug) after the raw
+    turn has already been committed by phase 1."""
+
+    def persist_enrichment(self, conn, *, session_id, turn_index, dm_struct):
+        raise RuntimeError("simulated enrichment failure")
+
+
+class TestTurnPipelineRawPersistenceRobustness(unittest.TestCase):
+    """
+    Guards the streaming-turn invariant: once the DM narration has been streamed
+    to the player, the raw turn (player_text + raw dm_text + dice_events) must be
+    durably recorded even if enrichment (parsed choices, state-delta/thread-update
+    review requests, story journal, rollup) subsequently raises. A refresh must
+    never show fewer turns than the player already saw on screen.
+    """
+
+    def _conn(self) -> tuple[tempfile.TemporaryDirectory, sqlite3.Connection, int, int]:
+        tmp = tempfile.TemporaryDirectory()
+        db_path = Path(tmp.name) / "test.sqlite3"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        campaign_id = campaigns.create_campaign(conn, "测试战役")
+        session_id = sessions.create_session(conn, campaign_id=campaign_id, title="第一章", current_scene="门厅")
+        conn.commit()
+        return tmp, conn, campaign_id, session_id
+
+    def test_raw_turn_is_committed_even_when_enrichment_raises(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+        try:
+            action = PlayerAction(
+                campaign_id=campaign_id,
+                session_id=session_id,
+                text="我推开门",
+                manual_tags=[],
+                extra_context="",
+            )
+            dm_raw = FakeDMClient().chat([])
+            pipeline = TurnPipeline(dm_client=FakeDMClient(), state_keeper=FailingEnrichmentStateKeeper())
+
+            result = pipeline.persist_dm_output(
+                conn,
+                action=action,
+                dm_raw=dm_raw,
+                recalled_world=[],
+                dice_events=[],
+            )
+
+            # The raw turn (what the player already saw streamed) must be durably
+            # persisted even though phase-2 enrichment raised.
+            row = conn.execute(
+                "SELECT player_text, dm_text FROM turn_logs WHERE session_id = ? AND turn_index = ?",
+                (session_id, result.turn_index),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["player_text"], "我推开门")
+            self.assertEqual(row["dm_text"], dm_raw)
+
+            # No pending review requests were queued since enrichment never ran.
+            pending = state_change_requests.list_pending(conn, session_id=session_id)
+            self.assertEqual(pending, [])
+
+            # The pipeline degrades gracefully rather than propagating the failure:
+            # a best-effort parsed narration with no critic/response warnings.
+            self.assertEqual(result.critic_warnings, [])
+            self.assertEqual(result.response_warnings, [])
+            self.assertEqual(result.dm.narration, "你推开门，屋内传来潮湿木头的气味。")
         finally:
             conn.close()
             tmp.cleanup()

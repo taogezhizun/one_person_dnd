@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -7,6 +8,30 @@ import httpx
 
 from one_person_dnd.config import LLMConfig
 from one_person_dnd.llm.providers import apply_provider_defaults, transport_provider
+
+# Upstream LLM error bodies are echoed back into the UI (Jinja auto-escapes them,
+# so this is not an XSS concern, but the raw body can be arbitrarily large and
+# some gateways reflect request headers -- including Authorization -- back in
+# error text). Redact obvious secret-shaped substrings and cap the length before
+# the body ever reaches an LLMClientError message.
+_ERROR_BODY_MAX_CHARS = 500
+_ERROR_BODY_TRUNCATED_SUFFIX = "…(truncated)"
+_BEARER_TOKEN_RE = re.compile(r"(?i)\bBearer\s+\S+")
+_API_KEY_TOKEN_RE = re.compile(r"\bsk-[A-Za-z0-9_\-]{10,}\b")
+
+
+def redact_llm_error_body(body: str, *, max_chars: int = _ERROR_BODY_MAX_CHARS) -> str:
+    """
+    Redact obvious secret-shaped substrings (Bearer tokens, sk-... API keys) from
+    an upstream LLM error body, then cap it to max_chars. Redaction runs before
+    truncation so a secret straddling the cutoff can't be half-leaked.
+    """
+    text = body or ""
+    text = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", text)
+    text = _API_KEY_TOKEN_RE.sub("[REDACTED]", text)
+    if len(text) > max_chars:
+        text = text[:max_chars].rstrip() + _ERROR_BODY_TRUNCATED_SUFFIX
+    return text
 
 
 @dataclass(frozen=True)
@@ -78,7 +103,7 @@ class OpenAICompatClient:
                     body = e.response.text
                 except Exception:
                     pass
-                raise LLMClientError(f"LLM HTTP error: {e} body={body}") from e
+                raise LLMClientError(f"LLM HTTP error: {e} body={redact_llm_error_body(body)}") from e
             except (httpx.ReadTimeout, httpx.ConnectError) as e:
                 last_exc = e
                 if attempt == 0:
@@ -160,7 +185,7 @@ class OpenAICompatClient:
                 body = e.response.text
             except Exception:
                 pass
-            raise LLMClientError(f"LLM HTTP error: {e} body={body}") from e
+            raise LLMClientError(f"LLM HTTP error: {e} body={redact_llm_error_body(body)}") from e
         except Exception as e:
             raise LLMClientError(f"LLM request failed: {e}") from e
 

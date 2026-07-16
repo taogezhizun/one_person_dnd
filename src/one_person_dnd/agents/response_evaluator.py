@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from one_person_dnd.agents.base import AgentResult
+from one_person_dnd.engine import protocol
 from one_person_dnd.engine.parser import DMStructuredResponse
 
 
@@ -51,10 +52,10 @@ class ResponseEvaluatorAgent:
             f"{warning_text}。\n"
             "请在不改变既有事实、地点、NPC 反应和玩家处境的前提下，重写为完整、可继续游玩的 DM 回复。\n"
             "必须严格输出这些分隔符段落，分隔符单独占一行：\n"
-            "===NARRATION===\n"
-            "===CHOICES===\n"
-            "===DM_NOTES===\n"
-            "===MEMORY===\n"
+            f"{protocol.NARRATION}\n"
+            f"{protocol.CHOICES}\n"
+            f"{protocol.DM_NOTES}\n"
+            f"{protocol.MEMORY}\n"
             "CHOICES 必须给出 3-6 条以 - 开头的玩家可执行的行动；"
             "选项必须具体、互不重复，并且不能替玩家宣布成功、失败、击杀、获得物品或 NPC 已经服从。\n"
             "如果需要 STATE_DELTA 或 THREAD_UPDATES，只能追加有效 JSON；不确定时留空或省略可选段。\n"

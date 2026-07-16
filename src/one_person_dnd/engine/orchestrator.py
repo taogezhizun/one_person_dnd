@@ -16,18 +16,14 @@ from one_person_dnd.db.repos import (
     turn_logs,
 )
 from one_person_dnd.domain.actions import ActionAssessment
+from one_person_dnd.engine import protocol
 from one_person_dnd.engine.dice import DiceEvent
 from one_person_dnd.engine.parser import DMStructuredResponse
 from one_person_dnd.llm import ChatMessage, create_llm_client
 
 logger = logging.getLogger("one_person_dnd.turn")
 
-_REQUIRED_PROTOCOL_DELIMS = (
-    "===NARRATION===",
-    "===CHOICES===",
-    "===DM_NOTES===",
-    "===MEMORY===",
-)
+_REQUIRED_PROTOCOL_DELIMS = protocol.REQUIRED_DELIMITERS
 
 
 def _has_required_protocol_delims(text: str) -> bool:
@@ -40,11 +36,11 @@ def _build_protocol_repair_prompt(raw: str) -> str:
         "你刚才的回复未严格按分隔符协议输出。请在不改变事实/剧情内容的前提下，将其“重新排版”为严格协议格式。\n"
         "要求：\n"
         "1) 必须包含并且仅包含这些分隔符段落（分隔符单独占一行，大小写一致）：\n"
-        "===NARRATION===\n"
-        "===CHOICES===\n"
-        "===DM_NOTES===\n"
-        "===MEMORY===\n"
-        "可选（若确实需要）：===STATE_DELTA=== 与 ===THREAD_UPDATES===，内容为 JSON 对象。\n"
+        f"{protocol.NARRATION}\n"
+        f"{protocol.CHOICES}\n"
+        f"{protocol.DM_NOTES}\n"
+        f"{protocol.MEMORY}\n"
+        f"可选（若确实需要）：{protocol.STATE_DELTA} 与 {protocol.THREAD_UPDATES}，内容为 JSON 对象。\n"
         "2) 禁止输出任何分隔符之外的标题/前缀/解释。\n"
         "3) CHOICES 段必须给出 3-6 条，以 - 开头，每条一行。\n"
         "\n"
@@ -107,20 +103,22 @@ def _get_session_scene_id(conn: sqlite3.Connection, session_id: int) -> str:
     return sessions.get_session_scene_id(conn, session_id)
 
 
-def persist_turn(
+def persist_raw_turn(
     conn: sqlite3.Connection,
     *,
     session_id: int,
     player_text: str,
     dm_raw: str,
-    dm_struct: DMStructuredResponse,
-    recalled_world: list[dict],
-    recalled_context: list[dict] | None = None,
     dice_events: list[DiceEvent] | None = None,
-) -> TurnResult:
+) -> tuple[int, list[DiceEvent]]:
     """
-    Persist turn logs, story journal, pending change requests, and rollup summaries.
-    Caller is responsible for committing.
+    Phase 1 (raw, durable): record exactly what the player already saw streamed to
+    them -- player_text, the raw dm_text, and dice_events -- and commit immediately.
+
+    This must succeed and be committed *before* any richer enrichment (parsed
+    choices, state-delta/thread-update review requests, story journal, summary
+    rollup) is attempted, so a later enrichment failure can never erase or hide a
+    turn the player already saw. Returns (turn_index, safe_dice_events).
     """
     turn_index = _next_turn_index(conn, session_id)
     safe_dice_events = list(dice_events or [])
@@ -132,7 +130,24 @@ def persist_turn(
         dm_text=dm_raw,
         dice_events_json=json.dumps(safe_dice_events, ensure_ascii=False),
     )
+    conn.commit()
+    return turn_index, safe_dice_events
 
+
+def persist_turn_enrichment(
+    conn: sqlite3.Connection,
+    *,
+    session_id: int,
+    turn_index: int,
+    dm_struct: DMStructuredResponse,
+) -> None:
+    """
+    Phase 2 (enrichment, best-effort): pending state-delta/thread-update review
+    requests, the story journal entry, session bookkeeping, and summary rollup.
+
+    Caller is responsible for committing/rolling back; this only executes writes
+    against the already-open transaction.
+    """
     if (dm_struct.state_delta_json or "").strip():
         state_change_requests.create_request(
             conn,
@@ -159,6 +174,52 @@ def persist_turn(
 
     sessions.touch_last_played(conn, session_id=session_id)
     _maybe_rollup_summaries(conn, session_id=session_id, current_turn_index=turn_index)
+
+
+def persist_turn(
+    conn: sqlite3.Connection,
+    *,
+    session_id: int,
+    player_text: str,
+    dm_raw: str,
+    dm_struct: DMStructuredResponse,
+    recalled_world: list[dict],
+    recalled_context: list[dict] | None = None,
+    dice_events: list[DiceEvent] | None = None,
+) -> TurnResult:
+    """
+    Persist turn logs, story journal, pending change requests, and rollup summaries.
+
+    Two-phase: see persist_raw_turn() / persist_turn_enrichment(). If enrichment
+    raises, it is logged and rolled back, but the already-committed raw turn from
+    phase 1 is preserved -- callers get back a TurnResult built from the raw turn
+    either way. This function commits on success and rolls back phase 2 on
+    failure; callers do not need to commit afterwards (harmless no-op if they do).
+    """
+    turn_index, safe_dice_events = persist_raw_turn(
+        conn,
+        session_id=session_id,
+        player_text=player_text,
+        dm_raw=dm_raw,
+        dice_events=dice_events,
+    )
+
+    try:
+        persist_turn_enrichment(
+            conn,
+            session_id=session_id,
+            turn_index=turn_index,
+            dm_struct=dm_struct,
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception(
+            "turn_enrichment_failed session=%s turn=%s; raw turn log already committed",
+            session_id,
+            turn_index,
+        )
+
     return TurnResult(
         turn_index=turn_index,
         dm_raw_text=dm_raw,

@@ -22,16 +22,25 @@ def merge_state_delta(base: Any, delta: Any) -> Any:
         return out
 
     if isinstance(base, list) and isinstance(delta, list):
-        merged = list(base)
-        for idx, value in enumerate(delta):
-            if idx < len(merged):
-                if isinstance(merged[idx], dict) and isinstance(value, dict):
-                    merged[idx] = merge_state_delta(merged[idx], value)
+        if any(isinstance(v, dict) for v in delta):
+            # Dict-element lists (e.g. "party") are merged by index rather than replaced
+            # outright, so a partial delta like {"party": [{"hp": 6}]} only updates the
+            # fields it mentions and doesn't erase the other fields of that party member.
+            merged = list(base)
+            for idx, value in enumerate(delta):
+                if idx < len(merged):
+                    if isinstance(merged[idx], dict) and isinstance(value, dict):
+                        merged[idx] = merge_state_delta(merged[idx], value)
+                    else:
+                        merged[idx] = value
                 else:
-                    merged[idx] = value
-            else:
-                merged.append(value)
-        return merged
+                    merged.append(value)
+            return merged
+
+        # Scalar-element lists (inventory/conditions/abilities/etc.) are replaced wholesale.
+        # Index-merging scalars can only grow or overwrite a list, never shrink it, so a
+        # shorter delta (e.g. removing a used-up item from inventory) would silently no-op.
+        return list(delta)
 
     return delta
 
