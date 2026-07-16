@@ -507,6 +507,22 @@ details.advanced > summary {
 .action-composer__controls {
   margin-top: 8px;
 }
+.composer-kbd-hint {
+  margin-left: auto;
+  font-size: 0.82rem;
+  align-self: center;
+  white-space: nowrap;
+}
+.composer-kbd-hint kbd {
+  display: inline-block;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8em;
+  line-height: 1.4;
+}
 .action-composer details.advanced {
   margin-top: 8px;
   padding: 7px 9px;

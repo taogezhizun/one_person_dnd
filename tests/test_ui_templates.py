@@ -5,6 +5,8 @@ import unittest
 
 from jinja2 import Environment, FileSystemLoader
 
+from one_person_dnd.web.labels import register_jinja_globals
+
 
 class TestUITemplates(unittest.TestCase):
     def test_primary_nav_is_play_first(self) -> None:
@@ -22,14 +24,16 @@ class TestUITemplates(unittest.TestCase):
             self.assertIn(label, base)
         self.assertNotIn('href="/setup">配置', base)
 
-    def test_base_preconnects_external_script_origin(self) -> None:
+    def test_base_uses_local_vendored_scripts(self) -> None:
         base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
 
-        self.assertIn('<link rel="preconnect" href="https://unpkg.com" crossorigin />', base)
-        self.assertLess(
-            base.index('rel="preconnect" href="https://unpkg.com"'),
-            base.index('src="https://unpkg.com/htmx.org@1.9.12"'),
-        )
+        for src in (
+            '<script src="/static/vendor/htmx.min.js"></script>',
+            '<script src="/static/vendor/marked.min.js"></script>',
+            '<script src="/static/vendor/purify.min.js"></script>',
+        ):
+            self.assertIn(src, base)
+        self.assertNotIn("unpkg.com", base)
 
     def test_home_model_setup_cta_points_to_models(self) -> None:
         index = Path("src/one_person_dnd/web/templates/index.html").read_text(encoding="utf-8")
@@ -48,7 +52,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_new_adventure_generation_shows_long_submit_state(self) -> None:
         new = Path("src/one_person_dnd/web/templates/new.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("new-adventure__notice-actions", new)
@@ -61,13 +65,13 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('data-long-submit-button', new)
         self.assertIn('data-long-submit-status', new)
         self.assertIn("模型正在构思", new)
-        self.assertIn("function initLongSubmitForms()", base)
-        self.assertIn('querySelectorAll("[data-long-submit]")', base)
-        self.assertIn('querySelector("[data-long-submit-button]")', base)
-        self.assertIn('querySelector("[data-long-submit-status]")', base)
-        self.assertIn("button.disabled = true;", base)
-        self.assertIn("status.hidden = false;", base)
-        self.assertIn("initLongSubmitForms();", base)
+        self.assertIn("function initLongSubmitForms()", app_js)
+        self.assertIn('querySelectorAll("[data-long-submit]")', app_js)
+        self.assertIn('querySelector("[data-long-submit-button]")', app_js)
+        self.assertIn('querySelector("[data-long-submit-status]")', app_js)
+        self.assertIn("button.disabled = true;", app_js)
+        self.assertIn("status.hidden = false;", app_js)
+        self.assertIn("initLongSubmitForms();", app_js)
         self.assertIn(".form-status", css)
 
     def test_new_adventure_preview_summarizes_generated_content(self) -> None:
@@ -88,6 +92,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_new_adventure_preview_renders_counts_and_character_json(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("new_preview.html")
 
         html = template.render(
@@ -154,14 +159,14 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".app-main:focus-visible", css)
 
     def test_skip_link_explicitly_focuses_main_content(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn('data-skip-link', base)
-        self.assertIn("function initSkipLinks()", base)
-        self.assertIn('querySelectorAll("[data-skip-link]")', base)
-        self.assertIn('target.focus({ preventScroll: true });', base)
-        self.assertIn('target.scrollIntoView({ block: "start" });', base)
-        self.assertIn("initSkipLinks();", base)
+        self.assertIn('data-skip-link', app_js)
+        self.assertIn("function initSkipLinks()", app_js)
+        self.assertIn('querySelectorAll("[data-skip-link]")', app_js)
+        self.assertIn('target.focus({ preventScroll: true });', app_js)
+        self.assertIn('target.scrollIntoView({ block: "start" });', app_js)
+        self.assertIn("initSkipLinks();", app_js)
 
     def test_game_sidebar_uses_adventure_panel_sections(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -203,7 +208,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_game_sidebar_tabs_are_keyboard_accessible(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn('role="tablist"', game)
@@ -213,19 +218,20 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('aria-controls="panel-character"', game)
         self.assertIn('id="panel-character" role="tabpanel" aria-labelledby="panel-tab-label-character"', game)
         self.assertIn('id="panel-world" role="tabpanel" aria-labelledby="panel-tab-label-world"', game)
-        self.assertIn("function initAdventurePanelTabs()", base)
-        self.assertIn('querySelectorAll("[data-panel-tab]")', base)
-        self.assertIn('tab.setAttribute("aria-selected", checked ? "true" : "false");', base)
-        self.assertIn("ArrowRight", base)
-        self.assertIn("ArrowLeft", base)
-        self.assertIn("Home", base)
-        self.assertIn("End", base)
-        self.assertIn("targetTab.focus();", base)
-        self.assertIn("initAdventurePanelTabs();", base)
+        self.assertIn("function initAdventurePanelTabs()", app_js)
+        self.assertIn('querySelectorAll("[data-panel-tab]")', app_js)
+        self.assertIn('tab.setAttribute("aria-selected", checked ? "true" : "false");', app_js)
+        self.assertIn("ArrowRight", app_js)
+        self.assertIn("ArrowLeft", app_js)
+        self.assertIn("Home", app_js)
+        self.assertIn("End", app_js)
+        self.assertIn("targetTab.focus();", app_js)
+        self.assertIn("initAdventurePanelTabs();", app_js)
         self.assertIn(".panel-tabs__tab:focus-visible", css)
 
     def test_game_threads_tab_renders_open_plot_threads(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("game.html")
 
         html = template.render(
@@ -262,6 +268,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_game_world_tab_renders_world_bible_entries(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("game.html")
 
         html = template.render(
@@ -304,6 +311,7 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("action-composer", game)
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("game.html")
         common = {
             "campaign_id": 1,
@@ -364,6 +372,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_game_action_surface_guides_player_when_dm_is_not_connected(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("game.html")
         common = {
             "campaign_id": 1,
@@ -384,7 +393,7 @@ class TestUITemplates(unittest.TestCase):
         blocked = template.render(**common, llm_configured=False)
         ready = template.render(**common, llm_configured=True)
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
         self.assertIn('data-llm-ready="0"', blocked)
         self.assertIn("DM 尚未连接", blocked)
@@ -403,22 +412,23 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("disabled", blocked_submit.group(0))
         self.assertIn("disabled", ready_submit.group(0))
         self.assertIn("action-composer__notice", css)
-        self.assertIn('dataset.llmReady === "0"', base)
+        self.assertIn('dataset.llmReady === "0"', app_js)
 
     def test_turn_submit_starts_disabled_until_player_enters_action(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
         submit_button = re.search(r"<button\b[^>]*data-turn-submit[^>]*>", game, re.S)
         self.assertIsNotNone(submit_button)
         self.assertIn("disabled", submit_button.group(0))
-        self.assertIn("const hasText = Boolean(ta && ta.value.trim());", base)
-        self.assertIn("submitBtn.disabled = loading || !hasText || !llmReady;", base)
-        self.assertIn('ta.addEventListener("input"', base)
-        self.assertIn("updateTurnSubmitState(form);", base)
+        self.assertIn("const hasText = Boolean(ta && ta.value.trim());", app_js)
+        self.assertIn("submitBtn.disabled = loading || !hasText || !llmReady;", app_js)
+        self.assertIn('ta.addEventListener("input"', app_js)
+        self.assertIn("updateTurnSubmitState(form);", app_js)
 
     def test_fresh_game_page_offers_clickable_starter_actions(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("game.html")
         common = {
             "campaign_id": 1,
@@ -461,6 +471,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_quick_roll_stays_next_to_action_composer(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("game.html")
         common = {
             "campaign_id": 1,
@@ -545,94 +556,94 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".mobile-action-jump {\n  display: none;", css)
 
     def test_mobile_action_jump_focuses_main_action_input(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
 
         self.assertIn("data-action-jump", game)
-        self.assertIn("initActionJump", base)
-        self.assertIn("focusPlayerActionInput", base)
-        self.assertIn('closest("[data-action-jump]")', base)
-        self.assertIn('textarea[name=player_text]', base)
-        self.assertIn("ta.focus()", base)
-        self.assertIn("setSelectionRange", base)
-        self.assertIn('scrollIntoView({ block: "center", behavior: "smooth" })', base)
+        self.assertIn("initActionJump", app_js)
+        self.assertIn("focusPlayerActionInput", app_js)
+        self.assertIn('closest("[data-action-jump]")', app_js)
+        self.assertIn('textarea[name=player_text]', app_js)
+        self.assertIn("ta.focus()", app_js)
+        self.assertIn("setSelectionRange", app_js)
+        self.assertIn('scrollIntoView({ block: "center", behavior: "smooth" })', app_js)
 
     def test_turn_action_draft_is_persisted_per_session_until_success(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn("TURN_DRAFT_STORAGE_PREFIX", base)
-        self.assertIn("function turnDraftKey(form)", base)
-        self.assertIn('querySelector("input[name=session_id]")', base)
-        self.assertIn("function initTurnDraftPersistence()", base)
-        self.assertIn('localStorage.getItem(turnDraftKey(form))', base)
-        self.assertIn("function showTurnDraftFeedback()", base)
-        self.assertIn('feedback.textContent = "已恢复未发送的行动草稿，可继续编辑或发送";', base)
+        self.assertIn("TURN_DRAFT_STORAGE_PREFIX", app_js)
+        self.assertIn("function turnDraftKey(form)", app_js)
+        self.assertIn('querySelector("input[name=session_id]")', app_js)
+        self.assertIn("function initTurnDraftPersistence()", app_js)
+        self.assertIn('localStorage.getItem(turnDraftKey(form))', app_js)
+        self.assertIn("function showTurnDraftFeedback()", app_js)
+        self.assertIn('feedback.textContent = "已恢复未发送的行动草稿，可继续编辑或发送";', app_js)
         self.assertIn(
             "if (saved && !ta.value.trim()) {\n"
             "              ta.value = saved;\n"
             "              resizeAutoGrowTextarea(ta);\n"
             "              showTurnDraftFeedback();\n"
             "            }",
-            base,
+            app_js,
         )
-        self.assertIn('localStorage.setItem(turnDraftKey(form), ta.value)', base)
-        self.assertIn('localStorage.removeItem(turnDraftKey(form))', base)
-        self.assertIn("initTurnDraftPersistence();", base)
-        self.assertIn("let turnSucceeded = false;", base)
-        self.assertIn("turnSucceeded = true;", base)
-        self.assertIn("if (ta && turnSucceeded)", base)
-        self.assertIn("clearTurnDraft(form);", base)
+        self.assertIn('localStorage.setItem(turnDraftKey(form), ta.value)', app_js)
+        self.assertIn('localStorage.removeItem(turnDraftKey(form))', app_js)
+        self.assertIn("initTurnDraftPersistence();", app_js)
+        self.assertIn("let turnSucceeded = false;", app_js)
+        self.assertIn("turnSucceeded = true;", app_js)
+        self.assertIn("if (ta && turnSucceeded)", app_js)
+        self.assertIn("clearTurnDraft(form);", app_js)
 
     def test_player_action_textarea_autogrows_without_overrunning_story(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn('name="player_text" required data-turn-lockable data-autogrow', game)
-        self.assertIn("function resizeAutoGrowTextarea(ta)", base)
-        self.assertIn('ta.style.height = "auto";', base)
-        self.assertIn("Math.min(ta.scrollHeight, maxHeight)", base)
-        self.assertIn('document.querySelectorAll("textarea[data-autogrow]")', base)
-        self.assertIn('ta.addEventListener("input", function () {', base)
-        self.assertIn("resizeAutoGrowTextarea(ta);", base)
-        self.assertIn("initAutoGrowTextareas();", base)
+        self.assertIn("function resizeAutoGrowTextarea(ta)", app_js)
+        self.assertIn('ta.style.height = "auto";', app_js)
+        self.assertIn("Math.min(ta.scrollHeight, maxHeight)", app_js)
+        self.assertIn('document.querySelectorAll("textarea[data-autogrow]")', app_js)
+        self.assertIn('ta.addEventListener("input", function () {', app_js)
+        self.assertIn("resizeAutoGrowTextarea(ta);", app_js)
+        self.assertIn("initAutoGrowTextareas();", app_js)
         self.assertIn(".textarea[data-autogrow]", css)
         self.assertIn("max-height: min(34vh, 260px);", css)
         self.assertIn("overflow-y: auto;", css)
 
     def test_turn_extra_context_draft_is_scoped_and_cleared_after_success(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn("STATE_BLOCK_DRAFT_STORAGE_PREFIX", base)
-        self.assertIn("function stateBlockDraftKey(form)", base)
-        self.assertIn("function clearStateBlockDraft(form)", base)
-        self.assertIn("function initStateBlockDraftPersistence()", base)
-        self.assertIn('textarea[name=state_block]', base)
-        self.assertIn('localStorage.getItem(stateBlockDraftKey(form))', base)
+        self.assertIn("STATE_BLOCK_DRAFT_STORAGE_PREFIX", app_js)
+        self.assertIn("function stateBlockDraftKey(form)", app_js)
+        self.assertIn("function clearStateBlockDraft(form)", app_js)
+        self.assertIn("function initStateBlockDraftPersistence()", app_js)
+        self.assertIn('textarea[name=state_block]', app_js)
+        self.assertIn('localStorage.getItem(stateBlockDraftKey(form))', app_js)
         self.assertIn(
             "if (saved && !stateBlock.value.trim()) {\n"
             "              stateBlock.value = saved;\n"
             "              showTurnContextFeedback(saved.trim());\n"
             "              revealTurnContextInput(stateBlock);\n"
             "            }",
-            base,
+            app_js,
         )
-        self.assertIn('localStorage.setItem(stateBlockDraftKey(form), stateBlock.value)', base)
-        self.assertIn('localStorage.removeItem(stateBlockDraftKey(form))', base)
-        self.assertIn("initStateBlockDraftPersistence();", base)
-        self.assertIn("if (stateBlock && turnSucceeded)", base)
-        self.assertIn('stateBlock.value = "";', base)
-        self.assertIn("clearStateBlockDraft(form);", base)
+        self.assertIn('localStorage.setItem(stateBlockDraftKey(form), stateBlock.value)', app_js)
+        self.assertIn('localStorage.removeItem(stateBlockDraftKey(form))', app_js)
+        self.assertIn("initStateBlockDraftPersistence();", app_js)
+        self.assertIn("if (stateBlock && turnSucceeded)", app_js)
+        self.assertIn('stateBlock.value = "";', app_js)
+        self.assertIn("clearStateBlockDraft(form);", app_js)
 
     def test_story_first_keeps_empty_advanced_inputs_collapsed_on_restore(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn("function hasStateBlockDraft(form)", base)
-        self.assertIn('localStorage.getItem(stateBlockDraftKey(form))', base)
-        self.assertIn('const compactStory = Boolean(details.closest(".chat-card--story-first"));', base)
+        self.assertIn("function hasStateBlockDraft(form)", app_js)
+        self.assertIn('localStorage.getItem(stateBlockDraftKey(form))', app_js)
+        self.assertIn('const compactStory = Boolean(details.closest(".chat-card--story-first"));', app_js)
         self.assertIn(
             'if (saved === "1" && (!compactStory || hasStateBlockDraft(form))) details.open = true;',
-            base,
+            app_js,
         )
 
     def test_story_first_bounds_open_advanced_inputs_in_compact_action_rail(self) -> None:
@@ -651,112 +662,112 @@ class TestUITemplates(unittest.TestCase):
         )
 
     def test_unsaved_turn_draft_warns_before_leaving(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn("function hasUnsavedTurnDraft(form)", base)
-        self.assertIn('form.dataset.turnInFlight === "1"', base)
-        self.assertIn('form.querySelector("textarea[name=player_text]")', base)
-        self.assertIn('form.querySelector("textarea[name=state_block]")', base)
-        self.assertIn("Boolean(playerText && playerText.value.trim())", base)
-        self.assertIn("Boolean(stateBlock && stateBlock.value.trim())", base)
-        self.assertIn("function initUnsavedTurnWarning()", base)
-        self.assertIn('window.addEventListener("beforeunload"', base)
-        self.assertIn("if (!hasUnsavedTurnDraft(form)) return;", base)
-        self.assertIn("evt.preventDefault();", base)
-        self.assertIn('evt.returnValue = "";', base)
-        self.assertIn("initUnsavedTurnWarning();", base)
+        self.assertIn("function hasUnsavedTurnDraft(form)", app_js)
+        self.assertIn('form.dataset.turnInFlight === "1"', app_js)
+        self.assertIn('form.querySelector("textarea[name=player_text]")', app_js)
+        self.assertIn('form.querySelector("textarea[name=state_block]")', app_js)
+        self.assertIn("Boolean(playerText && playerText.value.trim())", app_js)
+        self.assertIn("Boolean(stateBlock && stateBlock.value.trim())", app_js)
+        self.assertIn("function initUnsavedTurnWarning()", app_js)
+        self.assertIn('window.addEventListener("beforeunload"', app_js)
+        self.assertIn("if (!hasUnsavedTurnDraft(form)) return;", app_js)
+        self.assertIn("evt.preventDefault();", app_js)
+        self.assertIn('evt.returnValue = "";', app_js)
+        self.assertIn("initUnsavedTurnWarning();", app_js)
 
     def test_turn_submit_button_reflects_input_and_loading_state(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("data-turn-submit", game)
         self.assertIn('data-default-label="发送"', game)
         self.assertIn('data-loading-label="发送中…"', game)
-        self.assertIn("function updateTurnSubmitState(form)", base)
-        self.assertIn("function initTurnSubmitState()", base)
-        self.assertIn("form.dataset.turnInFlight", base)
-        self.assertIn("submitBtn.textContent = loading ? loadingLabel : defaultLabel", base)
-        self.assertIn("submitBtn.disabled = loading || !hasText || !llmReady;", base)
-        self.assertIn("ta.addEventListener(\"input\"", base)
-        self.assertIn("initTurnSubmitState();", base)
-        self.assertIn("updateTurnSubmitState(form);", base)
+        self.assertIn("function updateTurnSubmitState(form)", app_js)
+        self.assertIn("function initTurnSubmitState()", app_js)
+        self.assertIn("form.dataset.turnInFlight", app_js)
+        self.assertIn("submitBtn.textContent = loading ? loadingLabel : defaultLabel", app_js)
+        self.assertIn("submitBtn.disabled = loading || !hasText || !llmReady;", app_js)
+        self.assertIn("ta.addEventListener(\"input\"", app_js)
+        self.assertIn("initTurnSubmitState();", app_js)
+        self.assertIn("updateTurnSubmitState(form);", app_js)
         self.assertIn(".btn:disabled", css)
         self.assertIn("cursor: not-allowed", css)
 
     def test_turn_keyboard_shortcut_respects_submit_button_state(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn("function submitTurnFormFromShortcut(form)", base)
-        self.assertIn("updateTurnSubmitState(form);", base)
-        self.assertIn('const submitBtn = form.querySelector("[data-turn-submit]");', base)
-        self.assertIn("if (!submitBtn || submitBtn.disabled) return;", base)
-        self.assertIn("form.requestSubmit(submitBtn);", base)
-        self.assertIn("submitTurnFormFromShortcut(form);", base)
-        self.assertNotIn("form.requestSubmit();", base)
+        self.assertIn("function submitTurnFormFromShortcut(form)", app_js)
+        self.assertIn("updateTurnSubmitState(form);", app_js)
+        self.assertIn('const submitBtn = form.querySelector("[data-turn-submit]");', app_js)
+        self.assertIn("if (!submitBtn || submitBtn.disabled) return;", app_js)
+        self.assertIn("form.requestSubmit(submitBtn);", app_js)
+        self.assertIn("submitTurnFormFromShortcut(form);", app_js)
+        self.assertNotIn("form.requestSubmit();", app_js)
 
     def test_turn_loading_state_is_announced(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
         self.assertIn('id="turn-loading" class="htmx-indicator spinner" role="status" aria-live="polite"', game)
-        self.assertIn('asstContent.setAttribute("role", "status");', base)
-        self.assertIn('asstContent.setAttribute("aria-live", "polite");', base)
-        self.assertIn("DM 正在思考下一幕…", base)
+        self.assertIn('asstContent.setAttribute("role", "status");', app_js)
+        self.assertIn('asstContent.setAttribute("aria-live", "polite");', app_js)
+        self.assertIn("DM 正在思考下一幕…", app_js)
 
     def test_turn_request_locks_editable_fields_while_in_flight(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn('name="player_text" required data-turn-lockable', game)
         self.assertIn('name="tags" data-turn-lockable', game)
         self.assertIn('name="state_block" data-turn-lockable', game)
-        self.assertIn("function setTurnFieldsReadOnly(form, readOnly)", base)
-        self.assertIn('querySelectorAll("[data-turn-lockable]")', base)
-        self.assertIn("field.readOnly = readOnly;", base)
-        self.assertIn('field.setAttribute("aria-readonly", readOnly ? "true" : "false");', base)
-        self.assertIn("setTurnFieldsReadOnly(form, inFlight);", base)
-        self.assertIn("function isTurnRequestInFlight()", base)
-        self.assertIn("if (isTurnRequestInFlight()) return;", base)
+        self.assertIn("function setTurnFieldsReadOnly(form, readOnly)", app_js)
+        self.assertIn('querySelectorAll("[data-turn-lockable]")', app_js)
+        self.assertIn("field.readOnly = readOnly;", app_js)
+        self.assertIn('field.setAttribute("aria-readonly", readOnly ? "true" : "false");', app_js)
+        self.assertIn("setTurnFieldsReadOnly(form, inFlight);", app_js)
+        self.assertIn("function isTurnRequestInFlight()", app_js)
+        self.assertIn("if (isTurnRequestInFlight()) return;", app_js)
         self.assertIn("[data-turn-lockable][readonly]", css)
         self.assertIn("cursor: wait", css)
 
     def test_streaming_turn_cancel_or_network_failure_replaces_waiting_state(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn("function renderTurnRequestNotice(turnEl, title, message, warn)", base)
-        self.assertIn('err && err.name === "AbortError"', base)
-        self.assertIn('renderTurnRequestNotice(turnEl, "请求已取消"', base)
-        self.assertIn("行动草稿已保留，可以修改后重新发送。", base)
-        self.assertIn('renderTurnRequestNotice(turnEl, "请求失败"', base)
-        self.assertIn('err && err.message ? err.message : "网络连接中断，请稍后重试。"', base)
-        self.assertIn('notice.className = warn ? "notice notice--err" : "notice"', base)
-        self.assertIn('notice.setAttribute("role", "status");', base)
-        self.assertIn('notice.setAttribute("aria-live", "polite");', base)
-        self.assertIn("asstMsg.innerHTML = '';", base)
+        self.assertIn("function renderTurnRequestNotice(turnEl, title, message, warn)", app_js)
+        self.assertIn('err && err.name === "AbortError"', app_js)
+        self.assertIn('renderTurnRequestNotice(turnEl, "请求已取消"', app_js)
+        self.assertIn("行动草稿已保留，可以修改后重新发送。", app_js)
+        self.assertIn('renderTurnRequestNotice(turnEl, "请求失败"', app_js)
+        self.assertIn('err && err.message ? err.message : "网络连接中断，请稍后重试。"', app_js)
+        self.assertIn('notice.className = warn ? "notice notice--err" : "notice"', app_js)
+        self.assertIn('notice.setAttribute("role", "status");', app_js)
+        self.assertIn('notice.setAttribute("aria-live", "polite");', app_js)
+        self.assertIn("asstMsg.innerHTML = '';", app_js)
 
     def test_successful_turn_refreshes_character_review_panel(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
 
-        self.assertIn("function refreshCharacterPanel()", base)
-        self.assertIn('document.getElementById("character-panel")', base)
-        self.assertIn('window.htmx.ajax("GET", "/character/panel"', base)
-        self.assertIn('target: "#character-panel"', base)
-        self.assertIn('swap: "innerHTML"', base)
-        self.assertIn("refreshCharacterPanel();", base)
-        self.assertLess(base.index("turnSucceeded = true;"), base.index("refreshCharacterPanel();"))
-        self.assertIn("function surfacePendingReview(turn)", base)
-        self.assertIn("turn && turn.has_pending_review", base)
-        self.assertIn('document.querySelector("[data-pending-count]")', base)
-        self.assertIn("条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。", base)
+        self.assertIn("function refreshCharacterPanel()", app_js)
+        self.assertIn('document.getElementById("character-panel")', app_js)
+        self.assertIn('window.htmx.ajax("GET", "/character/panel"', app_js)
+        self.assertIn('target: "#character-panel"', app_js)
+        self.assertIn('swap: "innerHTML"', app_js)
+        self.assertIn("refreshCharacterPanel();", app_js)
+        self.assertLess(app_js.index("turnSucceeded = true;"), app_js.index("refreshCharacterPanel();"))
+        self.assertIn("function surfacePendingReview(turn)", app_js)
+        self.assertIn("turn && turn.has_pending_review", app_js)
+        self.assertIn('document.querySelector("[data-pending-count]")', app_js)
+        self.assertIn("条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。", app_js)
         self.assertIn("data-review-callout", game)
         self.assertIn("data-review-callout-text", game)
-        self.assertIn('surfacePendingReview(payload.turn);', base)
-        self.assertLess(base.index("refreshCharacterPanel();"), base.index("surfacePendingReview(payload.turn);"))
-        self.assertIn("if (evt.detail && evt.detail.successful === false)", base)
+        self.assertIn('surfacePendingReview(payload.turn);', app_js)
+        self.assertLess(app_js.index("refreshCharacterPanel();"), app_js.index("surfacePendingReview(payload.turn);"))
+        self.assertIn("if (evt.detail && evt.detail.successful === false)", app_js)
 
     def test_desktop_game_chrome_keeps_action_loop_compact(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -775,10 +786,11 @@ class TestUITemplates(unittest.TestCase):
 
     def test_quick_roll_result_can_be_applied_to_turn_context(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("partials/roll_result.html")
         html = template.render(event={"expr": "1d20+5", "rolls": [13], "modifier": 5, "total": 18})
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn('hx-post="/game/roll"', game)
@@ -799,35 +811,35 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("掷骰结果：1d20+5", html)
         self.assertIn("[13]", html)
         self.assertIn("= 18", html)
-        self.assertIn("initRollContextActions", base)
-        self.assertIn('closest("[data-roll-context]")', base)
-        self.assertIn('textarea[name=state_block]', base)
+        self.assertIn("initRollContextActions", app_js)
+        self.assertIn('closest("[data-roll-context]")', app_js)
+        self.assertIn('textarea[name=state_block]', app_js)
         self.assertIn("data-turn-context-feedback", game)
-        self.assertIn("function showTurnContextFeedback(context)", base)
-        self.assertIn("function hideTurnContextFeedback()", base)
-        self.assertIn('document.querySelector("[data-turn-context-feedback]")', base)
-        self.assertIn('feedback.textContent = "已带入本回合线索：" + context;', base)
-        self.assertIn("function revealTurnContextInput(stateBlock)", base)
-        self.assertIn('const advanced = stateBlock.closest("[data-advanced-inputs]");', base)
-        self.assertIn("advanced.open = true;", base)
-        self.assertIn('localStorage.setItem(ADVANCED_STORAGE_KEY, "1");', base)
-        self.assertIn('stateBlock.focus({ preventScroll: true });', base)
-        self.assertIn('stateBlock.scrollIntoView({ block: "center", behavior: "smooth" });', base)
-        self.assertIn('const contextLines = current.split("\\n").map((line) => line.trim()).filter(Boolean);', base)
-        self.assertIn("if (contextLines.includes(context)) {", base)
-        self.assertIn('showTurnContextFeedback("该线索已在本回合上下文中");', base)
-        self.assertIn('btn.textContent = "已带入过"', base)
-        self.assertIn("hideTurnContextFeedback();", base)
-        self.assertNotIn("turnContextFeedbackTimer", base)
-        self.assertIn('btn.textContent = "已带入线索"', base)
-        self.assertIn("window.setTimeout", base)
-        self.assertIn("btn.disabled = true", base)
+        self.assertIn("function showTurnContextFeedback(context)", app_js)
+        self.assertIn("function hideTurnContextFeedback()", app_js)
+        self.assertIn('document.querySelector("[data-turn-context-feedback]")', app_js)
+        self.assertIn('feedback.textContent = "已带入本回合线索：" + context;', app_js)
+        self.assertIn("function revealTurnContextInput(stateBlock)", app_js)
+        self.assertIn('const advanced = stateBlock.closest("[data-advanced-inputs]");', app_js)
+        self.assertIn("advanced.open = true;", app_js)
+        self.assertIn('localStorage.setItem(ADVANCED_STORAGE_KEY, "1");', app_js)
+        self.assertIn('stateBlock.focus({ preventScroll: true });', app_js)
+        self.assertIn('stateBlock.scrollIntoView({ block: "center", behavior: "smooth" });', app_js)
+        self.assertIn('const contextLines = current.split("\\n").map((line) => line.trim()).filter(Boolean);', app_js)
+        self.assertIn("if (contextLines.includes(context)) {", app_js)
+        self.assertIn('showTurnContextFeedback("该线索已在本回合上下文中");', app_js)
+        self.assertIn('btn.textContent = "已带入过"', app_js)
+        self.assertIn("hideTurnContextFeedback();", app_js)
+        self.assertNotIn("turnContextFeedbackTimer", app_js)
+        self.assertIn('btn.textContent = "已带入线索"', app_js)
+        self.assertIn("window.setTimeout", app_js)
+        self.assertIn("btn.disabled = true", app_js)
         self.assertIn(".action-composer__context-feedback", css)
         self.assertIn(".roll-result__actions", css)
 
     def test_quick_roll_submit_starts_disabled_until_expression_is_entered(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
         quick_roll_input = re.search(r'<input\b[^>]*name="roll_expr_text"[^>]*>', game, re.S)
         quick_roll_button = re.search(r'<button\b[^>]*data-quick-roll-submit[^>]*>', game, re.S)
@@ -835,32 +847,32 @@ class TestUITemplates(unittest.TestCase):
         self.assertIsNotNone(quick_roll_button)
         self.assertIn("data-quick-roll-input", quick_roll_input.group(0))
         self.assertIn("disabled", quick_roll_button.group(0))
-        self.assertIn("function updateQuickRollSubmitState(form)", base)
-        self.assertIn('form.querySelector("[data-quick-roll-input]")', base)
-        self.assertIn('form.querySelector("[data-quick-roll-submit]")', base)
-        self.assertIn("submitBtn.disabled = loading || !hasExpr;", base)
-        self.assertIn("function initQuickRollSubmitState()", base)
-        self.assertIn('input.addEventListener("input"', base)
-        self.assertIn("initQuickRollSubmitState();", base)
+        self.assertIn("function updateQuickRollSubmitState(form)", app_js)
+        self.assertIn('form.querySelector("[data-quick-roll-input]")', app_js)
+        self.assertIn('form.querySelector("[data-quick-roll-submit]")', app_js)
+        self.assertIn("submitBtn.disabled = loading || !hasExpr;", app_js)
+        self.assertIn("function initQuickRollSubmitState()", app_js)
+        self.assertIn('input.addEventListener("input"', app_js)
+        self.assertIn("initQuickRollSubmitState();", app_js)
 
     def test_quick_roll_submit_locks_while_request_is_in_flight(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn('form.dataset.quickRollInFlight === "1"', base)
-        self.assertIn("submitBtn.disabled = loading || !hasExpr;", base)
-        self.assertIn("function setQuickRollRequestUI(form, inFlight)", base)
-        self.assertIn('form.dataset.quickRollInFlight = inFlight ? "1" : "0";', base)
-        self.assertIn('elt.querySelector("[data-quick-roll-submit]")', base)
-        self.assertIn("setQuickRollRequestUI(elt, true);", base)
-        self.assertIn("setQuickRollRequestUI(elt, false);", base)
+        self.assertIn('form.dataset.quickRollInFlight === "1"', app_js)
+        self.assertIn("submitBtn.disabled = loading || !hasExpr;", app_js)
+        self.assertIn("function setQuickRollRequestUI(form, inFlight)", app_js)
+        self.assertIn('form.dataset.quickRollInFlight = inFlight ? "1" : "0";', app_js)
+        self.assertIn('elt.querySelector("[data-quick-roll-submit]")', app_js)
+        self.assertIn("setQuickRollRequestUI(elt, true);", app_js)
+        self.assertIn("setQuickRollRequestUI(elt, false);", app_js)
 
     def test_quick_roll_input_is_readonly_while_request_is_in_flight(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
-        self.assertIn('const input = form.querySelector("[data-quick-roll-input]");', base)
-        self.assertIn("input.readOnly = inFlight;", base)
-        self.assertIn('input.setAttribute("aria-readonly", inFlight ? "true" : "false");', base)
+        self.assertIn('const input = form.querySelector("[data-quick-roll-input]");', app_js)
+        self.assertIn("input.readOnly = inFlight;", app_js)
+        self.assertIn('input.setAttribute("aria-readonly", inFlight ? "true" : "false");', app_js)
         self.assertIn("[data-quick-roll-input][readonly]", css)
         self.assertIn("cursor: wait", css)
 
@@ -1000,20 +1012,20 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".grid--game { grid-template-columns: 1fr; }", css)
 
     def test_game_layout_resizer_script_persists_and_resets_width(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn('const GAME_LAYOUT_WIDTH_STORAGE_PREFIX = "one_person_dnd.gameSidebarWidth.";', base)
-        self.assertIn("function initGameLayoutResizer()", base)
-        self.assertIn('querySelector("[data-game-layout]")', base)
-        self.assertIn('querySelector("[data-game-layout-resizer]")', base)
-        self.assertIn('querySelector("[data-game-layout-reset]")', base)
-        self.assertIn('--game-sidebar-width', base)
-        self.assertIn('localStorage.setItem(gameLayoutStorageKey(grid),', base)
-        self.assertIn('localStorage.removeItem(gameLayoutStorageKey(grid));', base)
-        self.assertIn('resizer.addEventListener("pointerdown"', base)
-        self.assertIn('resizer.addEventListener("dblclick"', base)
-        self.assertIn('evt.key === "ArrowLeft"', base)
-        self.assertIn("initGameLayoutResizer();", base)
+        self.assertIn('const GAME_LAYOUT_WIDTH_STORAGE_PREFIX = "one_person_dnd.gameSidebarWidth.";', app_js)
+        self.assertIn("function initGameLayoutResizer()", app_js)
+        self.assertIn('querySelector("[data-game-layout]")', app_js)
+        self.assertIn('querySelector("[data-game-layout-resizer]")', app_js)
+        self.assertIn('querySelector("[data-game-layout-reset]")', app_js)
+        self.assertIn('--game-sidebar-width', app_js)
+        self.assertIn('localStorage.setItem(gameLayoutStorageKey(grid),', app_js)
+        self.assertIn('localStorage.removeItem(gameLayoutStorageKey(grid));', app_js)
+        self.assertIn('resizer.addEventListener("pointerdown"', app_js)
+        self.assertIn('resizer.addEventListener("dblclick"', app_js)
+        self.assertIn('evt.key === "ArrowLeft"', app_js)
+        self.assertIn("initGameLayoutResizer();", app_js)
 
     def test_chat_history_exposes_corner_height_resizer(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -1039,21 +1051,21 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("@media (max-width: 520px)", css)
 
     def test_chat_history_resizer_script_persists_keyboard_and_resets_height(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn('const CHAT_HISTORY_HEIGHT_STORAGE_PREFIX = "one_person_dnd.chatHistoryHeight.";', base)
-        self.assertIn("function initChatHistoryResizer()", base)
-        self.assertIn('querySelector("[data-chat-history-resizable]")', base)
-        self.assertIn('querySelector("[data-chat-history-resizer]")', base)
-        self.assertIn("function canResizeChatHistory(resizer)", base)
-        self.assertIn('chat.style.setProperty("--chat-history-height", nextHeight + "px");', base)
-        self.assertIn('localStorage.setItem(chatHistoryHeightStorageKey(),', base)
-        self.assertIn('localStorage.removeItem(chatHistoryHeightStorageKey());', base)
-        self.assertIn('resizer.addEventListener("pointerdown"', base)
-        self.assertIn('resizer.addEventListener("dblclick"', base)
-        self.assertIn('evt.key !== "ArrowUp" && evt.key !== "ArrowDown"', base)
-        self.assertIn("resetChatHistoryHeight(chat);", base)
-        self.assertIn("initChatHistoryResizer();", base)
+        self.assertIn('const CHAT_HISTORY_HEIGHT_STORAGE_PREFIX = "one_person_dnd.chatHistoryHeight.";', app_js)
+        self.assertIn("function initChatHistoryResizer()", app_js)
+        self.assertIn('querySelector("[data-chat-history-resizable]")', app_js)
+        self.assertIn('querySelector("[data-chat-history-resizer]")', app_js)
+        self.assertIn("function canResizeChatHistory(resizer)", app_js)
+        self.assertIn('chat.style.setProperty("--chat-history-height", nextHeight + "px");', app_js)
+        self.assertIn('localStorage.setItem(chatHistoryHeightStorageKey(),', app_js)
+        self.assertIn('localStorage.removeItem(chatHistoryHeightStorageKey());', app_js)
+        self.assertIn('resizer.addEventListener("pointerdown"', app_js)
+        self.assertIn('resizer.addEventListener("dblclick"', app_js)
+        self.assertIn('evt.key !== "ArrowUp" && evt.key !== "ArrowDown"', app_js)
+        self.assertIn("resetChatHistoryHeight(chat);", app_js)
+        self.assertIn("initChatHistoryResizer();", app_js)
 
     def test_game_page_surfaces_pending_review_callout(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -1213,6 +1225,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_character_panel_surfaces_notice_before_controls(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("partials/character_panel.html")
 
         html = template.render(
@@ -1253,6 +1266,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_character_panel_renders_abilities_conditions_and_notes_form(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("partials/character_panel.html")
 
         html = template.render(
@@ -1287,15 +1301,15 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('name="notes_text"', html)
 
     def test_character_panel_refresh_syncs_pending_review_count(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         panel = Path("src/one_person_dnd/web/templates/partials/character_panel.html").read_text(encoding="utf-8")
 
         self.assertIn("data-character-pending-count", panel)
-        self.assertIn("function syncPendingReviewCountFromPanel()", base)
-        self.assertIn('document.querySelector("[data-character-pending-count]")', base)
-        self.assertIn("setPendingReviewCount(count);", base)
-        self.assertIn('if (evt.target && evt.target.id === "character-panel")', base)
-        self.assertIn("syncPendingReviewCountFromPanel();", base)
+        self.assertIn("function syncPendingReviewCountFromPanel()", app_js)
+        self.assertIn('document.querySelector("[data-character-pending-count]")', app_js)
+        self.assertIn("setPendingReviewCount(count);", app_js)
+        self.assertIn('if (evt.target && evt.target.id === "character-panel")', app_js)
+        self.assertIn("syncPendingReviewCountFromPanel();", app_js)
 
     def test_models_edit_form_does_not_render_saved_api_key_value(self) -> None:
         template = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
@@ -1318,28 +1332,28 @@ class TestUITemplates(unittest.TestCase):
     def test_dm_choices_are_clickable_actions(self) -> None:
         partial = Path("src/one_person_dnd/web/templates/partials/chat_turn.html").read_text(encoding="utf-8")
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("data-choice-action", partial)
         self.assertIn("data-choice-text", partial)
         self.assertIn('aria-pressed="false"', partial)
         self.assertIn("choice-action", partial)
-        self.assertIn("data-choice-action", base)
-        self.assertIn("initChoiceActions", base)
-        self.assertIn("function clearSelectedChoiceActions()", base)
-        self.assertIn("function selectChoiceAction(btn)", base)
-        self.assertIn('querySelectorAll("[data-choice-action][aria-pressed=\'true\']")', base)
-        self.assertIn('btn.setAttribute("aria-pressed", "true");', base)
-        self.assertIn("choice-action--selected", base)
-        self.assertIn("dataset.choiceText", base)
-        self.assertIn("data-choice-feedback", base)
-        self.assertIn("function showChoiceActionFeedback()", base)
-        self.assertIn("已填入行动，可直接发送", base)
+        self.assertIn("data-choice-action", app_js)
+        self.assertIn("initChoiceActions", app_js)
+        self.assertIn("function clearSelectedChoiceActions()", app_js)
+        self.assertIn("function selectChoiceAction(btn)", app_js)
+        self.assertIn('querySelectorAll("[data-choice-action][aria-pressed=\'true\']")', app_js)
+        self.assertIn('btn.setAttribute("aria-pressed", "true");', app_js)
+        self.assertIn("choice-action--selected", app_js)
+        self.assertIn("dataset.choiceText", app_js)
+        self.assertIn("data-choice-feedback", app_js)
+        self.assertIn("function showChoiceActionFeedback()", app_js)
+        self.assertIn("已填入行动，可直接发送", app_js)
         self.assertIn("data-choice-feedback", game)
         self.assertIn('role="status"', game)
         self.assertIn(".action-composer__feedback", css)
-        self.assertIn('textarea[name=player_text]', base)
+        self.assertIn('textarea[name=player_text]', app_js)
         self.assertIn(".choice-action", css)
         self.assertIn(".choice-action:focus-visible", css)
         self.assertIn("outline: 2px solid var(--parchment);", css)
@@ -1347,24 +1361,24 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".choice-action--selected", css)
 
     def test_manual_action_edit_clears_selected_choice_state(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn("function syncSelectedChoiceWithInput(form)", base)
-        self.assertIn('document.querySelector("[data-choice-action][aria-pressed=\'true\']")', base)
-        self.assertIn("const currentText = ta && ta.value ? ta.value.trim() : \"\";", base)
-        self.assertIn("const selectedText = (selected.dataset.choiceText || selected.textContent || \"\").trim();", base)
-        self.assertIn("if (!currentText || selectedText !== currentText) clearSelectedChoiceActions();", base)
-        self.assertIn("syncSelectedChoiceWithInput(form);", base)
+        self.assertIn("function syncSelectedChoiceWithInput(form)", app_js)
+        self.assertIn('document.querySelector("[data-choice-action][aria-pressed=\'true\']")', app_js)
+        self.assertIn("const currentText = ta && ta.value ? ta.value.trim() : \"\";", app_js)
+        self.assertIn("const selectedText = (selected.dataset.choiceText || selected.textContent || \"\").trim();", app_js)
+        self.assertIn("if (!currentText || selectedText !== currentText) clearSelectedChoiceActions();", app_js)
+        self.assertIn("syncSelectedChoiceWithInput(form);", app_js)
 
     def test_successful_turn_clears_selected_choice_state(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
         self.assertIn(
             'if (ta && turnSucceeded) {\n'
             '                  ta.value = "";\n'
             '                  resizeAutoGrowTextarea(ta);\n'
             '                  clearSelectedChoiceActions();',
-            base,
+            app_js,
         )
         self.assertIn(
             'if (ta) {\n'
@@ -1372,18 +1386,19 @@ class TestUITemplates(unittest.TestCase):
             '            resizeAutoGrowTextarea(ta);\n'
             '            clearSelectedChoiceActions();\n'
             '          }',
-            base,
+            app_js,
         )
 
     def test_starter_actions_share_choice_selected_state(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
         self.assertIn('data-choice-action aria-pressed="false"', game)
-        self.assertIn("selectChoiceAction(btn);", base)
+        self.assertIn("selectChoiceAction(btn);", app_js)
 
     def test_chat_turn_renders_action_assessment_for_new_turns(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("partials/chat_turn.html")
 
         html = template.render(
@@ -1416,6 +1431,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_turn_diagnostics_renders_dm_critic_warnings_outside_story(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("partials/turn_diagnostics.html")
 
         html = template.render(
@@ -1437,6 +1453,7 @@ class TestUITemplates(unittest.TestCase):
 
     def test_turn_diagnostics_renders_response_warnings_outside_story(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("partials/turn_diagnostics.html")
 
         html = template.render(
@@ -1465,69 +1482,78 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".response-review", css)
 
     def test_streaming_renderer_outputs_action_assessment(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
+        labels_py = Path("src/one_person_dnd/web/labels.py").read_text(encoding="utf-8")
 
-        self.assertIn("action_assessment", base)
-        self.assertIn("action-assessment", base)
-        self.assertIn("系统判定", base)
-        self.assertIn("ACTION_TYPE_LABELS", base)
-        self.assertIn("ACTION_SIGNAL_LABELS", base)
-        self.assertIn("ACTION_WARNING_LABELS", base)
-        self.assertIn("可能需要掷骰", base)
-        self.assertIn("行动描述已包含结果", base)
+        self.assertIn("action_assessment", app_js)
+        self.assertIn("action-assessment", app_js)
+        self.assertIn("系统判定", app_js)
+        self.assertIn("ACTION_TYPE_LABELS", app_js)
+        self.assertIn("ACTION_SIGNAL_LABELS", app_js)
+        self.assertIn("ACTION_WARNING_LABELS", app_js)
+        # Label text itself now lives in the single-source `web/labels.py`;
+        # app.js reads it from the injected `#dnd-labels` JSON at runtime
+        # instead of hardcoding a second copy.
+        self.assertIn("可能需要掷骰", labels_py)
+        self.assertIn("行动描述已包含结果", labels_py)
 
     def test_streaming_renderer_places_dice_events_with_player_action(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn('const userMsg = turnEl.querySelector(".chat__msg--user");', base)
-        self.assertIn("const diceEvents = (turn && turn.dice_events) || [];", base)
-        self.assertIn("if (userMsg && diceEvents && diceEvents.length > 0) {", base)
-        self.assertIn("userMsg.appendChild(wrap);", base)
-        self.assertLess(base.index("renderActionAssessment(userMsg"), base.index("const diceEvents ="))
+        self.assertIn('const userMsg = turnEl.querySelector(".chat__msg--user");', app_js)
+        self.assertIn("const diceEvents = (turn && turn.dice_events) || [];", app_js)
+        self.assertIn("if (userMsg && diceEvents && diceEvents.length > 0) {", app_js)
+        self.assertIn("userMsg.appendChild(wrap);", app_js)
+        self.assertLess(app_js.index("renderActionAssessment(userMsg"), app_js.index("const diceEvents ="))
         self.assertLess(
-            base.index("userMsg.appendChild(wrap);"),
-            base.index('const asstMsg = turnEl.querySelector(".chat__msg--assistant");'),
+            app_js.index("userMsg.appendChild(wrap);"),
+            app_js.index('const asstMsg = turnEl.querySelector(".chat__msg--assistant");'),
         )
         self.assertNotIn(
             "asstMsg.appendChild(wrap);\n"
             "          }\n\n"
             "          const narration",
-            base,
+            app_js,
         )
 
     def test_streaming_turn_skeleton_shows_and_clears_waiting_state(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
-        self.assertIn("streaming-wait", base)
-        self.assertIn("DM 正在思考下一幕", base)
-        self.assertIn('asstContent.dataset.waiting = "1"', base)
-        self.assertIn('asstContent.textContent = ""', base)
-        self.assertIn('asstContent.classList.remove("streaming-wait", "spinner")', base)
-        self.assertLess(base.index('asstContent.textContent = ""'), base.index('asstContent.textContent += payload.text || ""'))
+        self.assertIn("streaming-wait", app_js)
+        self.assertIn("DM 正在思考下一幕", app_js)
+        self.assertIn('asstContent.dataset.waiting = "1"', app_js)
+        self.assertIn('asstContent.textContent = ""', app_js)
+        self.assertIn('asstContent.classList.remove("streaming-wait", "spinner")', app_js)
+        self.assertLess(app_js.index('asstContent.textContent = ""'), app_js.index('asstContent.textContent += payload.text || ""'))
         self.assertIn(".streaming-wait", css)
 
     def test_streaming_renderer_outputs_dm_critic_warnings(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
+        labels_py = Path("src/one_person_dnd/web/labels.py").read_text(encoding="utf-8")
 
-        self.assertIn("critic_warnings", base)
-        self.assertIn("dm-review", base)
-        self.assertIn("DM 审查", base)
-        self.assertIn("CRITIC_WARNING_LABELS", base)
-        self.assertIn("选项数量不适合继续游玩", base)
+        self.assertIn("critic_warnings", app_js)
+        self.assertIn("dm-review", app_js)
+        self.assertIn("DM 审查", app_js)
+        self.assertIn("CRITIC_WARNING_LABELS", app_js)
+        # Single source: the label text lives in `web/labels.py`, not app.js.
+        self.assertIn("行动建议数量不适合继续游玩", labels_py)
 
     def test_streaming_renderer_outputs_response_warnings(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
+        labels_py = Path("src/one_person_dnd/web/labels.py").read_text(encoding="utf-8")
 
-        self.assertIn("response_warnings", base)
-        self.assertIn("response-review", base)
-        self.assertIn("反应评估", base)
-        self.assertIn("RESPONSE_WARNING_LABELS", base)
-        self.assertIn("选项重复", base)
-        self.assertIn("选项过于笼统", base)
+        self.assertIn("response_warnings", app_js)
+        self.assertIn("response-review", app_js)
+        self.assertIn("反应评估", app_js)
+        self.assertIn("RESPONSE_WARNING_LABELS", app_js)
+        # Single source: the label text lives in `web/labels.py`, not app.js.
+        self.assertIn("行动建议重复", labels_py)
+        self.assertIn("行动建议过于笼统", labels_py)
 
     def test_chat_turn_append_renders_recalled_context_preview(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+        register_jinja_globals(env)
         template = env.get_template("partials/chat_turn_append.html")
 
         html = template.render(
@@ -1589,30 +1615,30 @@ class TestUITemplates(unittest.TestCase):
         self.assertNotIn("发送一次行动后显示命中的 WorldBible 条目", game)
 
     def test_streaming_renderer_outputs_recalled_context_preview(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn("recalled_context", base)
-        self.assertIn("renderRecalledContext", base)
-        self.assertIn("本回合参考", base)
-        self.assertIn("已裁剪", base)
-        self.assertIn("recall-stack", base)
+        self.assertIn("recalled_context", app_js)
+        self.assertIn("renderRecalledContext", app_js)
+        self.assertIn("本回合参考", app_js)
+        self.assertIn("已裁剪", app_js)
+        self.assertIn("recall-stack", app_js)
 
     def test_streaming_renderer_splits_real_sse_newlines(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertIn('buf.split("\\n\\n")', base)
-        self.assertIn('chunk.split("\\n").filter(Boolean)', base)
-        self.assertNotIn('buf.split("\\\\n\\\\n")', base)
-        self.assertNotIn('chunk.split("\\\\n").filter(Boolean)', base)
+        self.assertIn('buf.split("\\n\\n")', app_js)
+        self.assertIn('chunk.split("\\n").filter(Boolean)', app_js)
+        self.assertNotIn('buf.split("\\\\n\\\\n")', app_js)
+        self.assertNotIn('chunk.split("\\\\n").filter(Boolean)', app_js)
 
     def test_base_inline_script_uses_valid_plain_js_quotes(self) -> None:
-        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
 
-        self.assertNotIn('document.getElementById(\\"', base)
-        self.assertNotIn('document.createElement(\\"', base)
-        self.assertNotIn('document.querySelector(\\"', base)
-        self.assertNotIn('form.querySelector(\\"', base)
-        self.assertNotIn('addEventListener(\\n            \\"', base)
+        self.assertNotIn('document.getElementById(\\"', app_js)
+        self.assertNotIn('document.createElement(\\"', app_js)
+        self.assertNotIn('document.querySelector(\\"', app_js)
+        self.assertNotIn('form.querySelector(\\"', app_js)
+        self.assertNotIn('addEventListener(\\n            \\"', app_js)
 
     def test_saves_campaigns_use_mobile_friendly_cards(self) -> None:
         saves = Path("src/one_person_dnd/web/templates/saves.html").read_text(encoding="utf-8")
