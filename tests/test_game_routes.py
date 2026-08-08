@@ -95,6 +95,7 @@ class TestGameRoutes(unittest.TestCase):
             with (
                 patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
                 patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.load_active_llm_config", return_value=None),
                 patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
             ):
                 template_response.side_effect = lambda *, request, name, context: context
@@ -129,6 +130,7 @@ class TestGameRoutes(unittest.TestCase):
             with (
                 patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
                 patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.load_active_llm_config", return_value=None),
                 patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
             ):
                 template_response.side_effect = lambda *, request, name, context: context
@@ -161,6 +163,7 @@ class TestGameRoutes(unittest.TestCase):
             with (
                 patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
                 patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.load_active_llm_config", return_value=None),
                 patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
             ):
                 template_response.side_effect = lambda *, request, name, context: context
@@ -180,6 +183,7 @@ class TestGameRoutes(unittest.TestCase):
             with (
                 patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
                 patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.load_active_llm_config", return_value=None),
                 patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
             ):
                 template_response.side_effect = lambda *, request, name, context: context
@@ -210,6 +214,7 @@ class TestGameRoutes(unittest.TestCase):
             with (
                 patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
                 patch("one_person_dnd.web.routes.game.get_current_campaign_session", return_value=(campaign_id, session_id)),
+                patch("one_person_dnd.web.routes.game.load_active_llm_config", return_value=None),
                 patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
             ):
                 template_response.side_effect = lambda *, request, name, context: context
