@@ -6,7 +6,7 @@ from pathlib import Path
 from one_person_dnd.db.conn import get_connection
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 def _apply_schema_v1(conn: sqlite3.Connection) -> None:
@@ -267,6 +267,48 @@ def _apply_schema_v9(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE session_snapshots ADD COLUMN narrative_json TEXT;")
 
 
+def _apply_schema_v10(conn: sqlite3.Connection) -> None:
+    """
+    Persist deterministic adjudication attempts before the LLM call and link
+    completed attempts to their final turn logs.
+
+    adjudication_records.turn_index is nullable because the mechanical result
+    is committed before a DM response (and therefore before a turn log) exists.
+    turn_logs keeps a denormalized adjudication JSON copy so narrative snapshots
+    remain self-contained. The partial unique index leaves legacy/old-snapshot
+    rows with a NULL attempt_id unrestricted.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(turn_logs);").fetchall()}
+    if "attempt_id" not in cols:
+        conn.execute("ALTER TABLE turn_logs ADD COLUMN attempt_id TEXT;")
+    if "adjudication_json" not in cols:
+        conn.execute("ALTER TABLE turn_logs ADD COLUMN adjudication_json TEXT;")
+
+    conn.executescript(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_turn_logs_unique_attempt
+        ON turn_logs(session_id, attempt_id)
+        WHERE attempt_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS adjudication_records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER NOT NULL,
+          attempt_id TEXT NOT NULL,
+          fingerprint TEXT NOT NULL,
+          record_json TEXT NOT NULL,
+          turn_index INTEGER,
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          completed_at TEXT,
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+          UNIQUE (session_id, attempt_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_adjudication_records_session_turn
+        ON adjudication_records(session_id, turn_index)
+        WHERE turn_index IS NOT NULL;
+        """
+    )
+
+
 def init_db(db_path: Path) -> None:
     """
     Initialize (and lightly migrate) the SQLite database using PRAGMA user_version.
@@ -304,6 +346,9 @@ def init_db(db_path: Path) -> None:
         if current_version < 9:
             _apply_schema_v9(conn)
             current_version = 9
+        if current_version < 10:
+            _apply_schema_v10(conn)
+            current_version = 10
 
         conn.execute(f"PRAGMA user_version = {current_version};")
         conn.commit()

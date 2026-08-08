@@ -3,14 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from one_person_dnd.agents.pipeline import TurnPipeline
-from one_person_dnd.agents.action_judge import ActionJudgeAgent
-from one_person_dnd.agents.continuity_critic import ContinuityCriticAgent
-from one_person_dnd.agents.response_evaluator import ResponseEvaluatorAgent
 from one_person_dnd.config import AppState, load_memory_config, save_app_state
 from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import (
@@ -25,15 +23,16 @@ from one_person_dnd.db.repos import (
 )
 from one_person_dnd.engine.dice import roll_expr
 from one_person_dnd.engine.orchestrator import ensure_dm_protocol_output
-from one_person_dnd.engine.parser import parse_dm_text
-from one_person_dnd.domain.actions import ActionAssessment, PlayerAction
+from one_person_dnd.domain.actions import PlayerAction
 from one_person_dnd.llm import LLMClientError, create_llm_client
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import get_current_campaign_session, load_active_llm_config, templates
+from one_person_dnd.web.turn_presenter import TurnPresenter
 
 router = APIRouter()
 logger = logging.getLogger("one_person_dnd.web")
 WORLD_SETUP_SKIP_KEY_PREFIX = "world_setup_prompt_skipped.session."
+turn_presenter = TurnPresenter()
 
 
 def _world_setup_skip_key(session_id: int) -> str:
@@ -76,23 +75,10 @@ def _build_turn_prompt_overrides(
     return turn_context, effective_cheat_prompt
 
 
-def _serialize_action_assessment(assessment: ActionAssessment | None) -> dict | None:
-    if assessment is None:
-        return None
-    return {
-        "action_type": assessment.action_type,
-        "signals": list(assessment.signals),
-        "warnings": list(assessment.warnings),
-    }
-
-
-def _pending_review_delta(dm) -> int:
-    delta = 0
-    if (getattr(dm, "state_delta_json", "") or "").strip():
-        delta += 1
-    if (getattr(dm, "thread_updates_json", "") or "").strip():
-        delta += 1
-    return delta
+def _turn_attempt_id(value: object) -> str:
+    """Use a browser-stable id when present and a server id for legacy clients."""
+    cleaned = value.strip() if isinstance(value, str) else ""
+    return cleaned[:128] if cleaned else uuid.uuid4().hex
 
 
 @router.get("/game", response_class=HTMLResponse)
@@ -124,42 +110,11 @@ def game(request: Request) -> HTMLResponse:
         cheat_prompt = (cheat_cfg.get("cheat_prompt") or "").strip()
 
         rows = turn_logs.list_turn_logs(conn, session_id=session_id, limit=50)
-        turns = []
-        action_judge = ActionJudgeAgent()
-        continuity_critic = ContinuityCriticAgent()
-        response_evaluator = ResponseEvaluatorAgent()
-        for r in rows[::-1]:
-            dm_raw = (r.get("dm_text") or "").strip()
-            dm = parse_dm_text(dm_raw)
-            player_text = r.get("player_text") or ""
-            action_assessment = action_judge.run(
-                PlayerAction(
-                    campaign_id=campaign_id,
-                    session_id=session_id,
-                    text=player_text,
-                )
-            )
-            dice_events_raw = (r.get("dice_events") or "").strip()
-            dice_events: list[dict] = []
-            if dice_events_raw:
-                try:
-                    loaded = json.loads(dice_events_raw)
-                    if isinstance(loaded, list):
-                        dice_events = [it for it in loaded if isinstance(it, dict)]
-                except Exception:
-                    dice_events = []
-            turns.append(
-                {
-                    "turn_index": int(r["turn_index"]),
-                    "player_text": player_text,
-                    "dm": dm,
-                    "dice_events": dice_events,
-                    "action_assessment": _serialize_action_assessment(action_assessment),
-                    "critic_warnings": list(continuity_critic.run(dm_raw).warnings),
-                    "response_warnings": list(response_evaluator.run(dm).warnings),
-                    "created_at": (r.get("created_at") or ""),
-                }
-            )
+        turns = turn_presenter.present_history(
+            rows,
+            campaign_id=campaign_id,
+            session_id=session_id,
+        )
     finally:
         conn.close()
 
@@ -211,6 +166,7 @@ def game_turn(
     campaign_id: int = Form(...),
     session_id: int = Form(...),
     player_text: str = Form(...),
+    attempt_id: str = Form(""),
     tags: str = Form(""),
     state_block: str = Form(""),
 ) -> HTMLResponse:
@@ -221,6 +177,7 @@ def game_turn(
             request=request,
             name="partials/test_result.html",
             context={"ok": False, "message": "LLM 未配置，请先在 /models 配置。"},
+            headers={"X-Turn-Accepted": "0"},
         )
 
     save_app_state(paths.config_path, AppState(active_campaign_id=campaign_id, active_session_id=session_id))
@@ -249,6 +206,7 @@ def game_turn(
             text=player_text,
             manual_tags=tag_list,
             extra_context=(state_block or "").strip(),
+            attempt_id=_turn_attempt_id(attempt_id),
         )
         conn = get_connection(paths.db_path)
         try:
@@ -263,21 +221,12 @@ def game_turn(
         finally:
             conn.close()
 
+        turn = turn_presenter.present_result(result, player_text=player_text)
         return templates.TemplateResponse(
             request=request,
             name="partials/chat_turn_append.html",
             context={
-                "turn": {
-                    "turn_index": result.turn_index,
-                    "player_text": player_text,
-                    "dm": result.dm,
-                    "dice_events": result.dice_events,
-                    "action_assessment": _serialize_action_assessment(result.action_assessment),
-                    "critic_warnings": list(result.critic_warnings or []),
-                    "response_warnings": list(result.response_warnings or []),
-                    "has_pending_review": _pending_review_delta(result.dm) > 0,
-                    "pending_review_delta": _pending_review_delta(result.dm),
-                },
+                "turn": turn,
                 "recalled_world": result.recalled_world,
                 "recalled_context": list(result.recalled_context or []),
             },
@@ -287,6 +236,7 @@ def game_turn(
             request=request,
             name="partials/chat_turn_error_append.html",
             context={"player_text": player_text, "message": str(e)},
+            headers={"X-Turn-Accepted": "0"},
         )
 
 
@@ -296,6 +246,7 @@ def game_turn_stream(
     campaign_id: int = Form(...),
     session_id: int = Form(...),
     player_text: str = Form(...),
+    attempt_id: str = Form(""),
     tags: str = Form(""),
     state_block: str = Form(""),
 ):
@@ -354,15 +305,45 @@ def game_turn_stream(
                     text=player_text,
                     manual_tags=tag_list,
                     extra_context=(state_block or "").strip(),
+                    attempt_id=_turn_attempt_id(attempt_id),
                 )
                 pipeline = TurnPipeline(dm_client=client)
-                messages, recalled_world, recalled_context, dice_events, action_assessment = pipeline.prepare_messages(
-                    conn,
-                    action=action,
-                    memory_cfg=memory_cfg,
-                    state_block=turn_context,
-                    cheat_prompt=effective_cheat_prompt,
-                )
+                if hasattr(pipeline, "prepare_turn"):
+                    prepared = pipeline.prepare_turn(
+                        conn,
+                        action=action,
+                        memory_cfg=memory_cfg,
+                        state_block=turn_context,
+                        cheat_prompt=effective_cheat_prompt,
+                    )
+                    if prepared.completed_result is not None:
+                        result = prepared.completed_result
+                        turn = turn_presenter.present_result(result, player_text=player_text)
+                        yield _sse(
+                            "final",
+                            {
+                                "turn": turn,
+                                "recalled_world": [],
+                                "recalled_context": [],
+                                "replayed": True,
+                            },
+                        )
+                        return
+                    messages = prepared.messages
+                    recalled_world = prepared.recalled_world
+                    recalled_context = prepared.recalled_context
+                    dice_events = prepared.dice_events
+                    action_assessment = prepared.action_assessment
+                    action = prepared.action
+                else:
+                    # Compatibility for narrow test doubles and older adapters.
+                    messages, recalled_world, recalled_context, dice_events, action_assessment = pipeline.prepare_messages(
+                        conn,
+                        action=action,
+                        memory_cfg=memory_cfg,
+                        state_block=turn_context,
+                        cheat_prompt=effective_cheat_prompt,
+                    )
                 t_prompt = time.perf_counter()
                 msg_count = len(messages)
                 prompt_chars = sum(len(m.content or "") for m in messages)
@@ -407,25 +388,11 @@ def game_turn_stream(
                     int((t_persist - t0) * 1000),
                 )
 
+                turn = turn_presenter.present_result(result, player_text=player_text)
                 yield _sse(
                     "final",
                     {
-                        "turn": {
-                            "turn_index": result.turn_index,
-                            "player_text": player_text,
-                            "dice_events": result.dice_events,
-                            "action_assessment": _serialize_action_assessment(result.action_assessment),
-                            "critic_warnings": list(result.critic_warnings or []),
-                            "response_warnings": list(result.response_warnings or []),
-                            "has_pending_review": _pending_review_delta(result.dm) > 0,
-                            "pending_review_delta": _pending_review_delta(result.dm),
-                            "dm": {
-                                "narration": result.dm.narration,
-                                "choices": result.dm.choices,
-                                "dm_notes": result.dm.dm_notes,
-                                "memory_suggestions": result.dm.memory_suggestions,
-                            },
-                        },
+                        "turn": turn,
                         "recalled_world": result.recalled_world,
                         "recalled_context": list(result.recalled_context or []),
                     },

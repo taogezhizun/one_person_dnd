@@ -22,6 +22,10 @@ def build_dm_messages(
     system = (
         "你是 Dungeon Master（DM）。\n"
         "硬规则：不得改写或违反世界设定（WorldBible）。不得替玩家做决定，只能给出选项。\n"
+        "若当前状态含 Action Assessment / 行动判定，它是本回合唯一权威的规则结算："
+        "resolved 时必须按其中的 success/failure 与总值叙事，不得重掷、改 DC、改加值或把普通属性检定的自然 1/20 当作自动失败/成功；"
+        "needs_input 时只描述尚缺的信息，不得擅自宣布结果；no_check 或 unsupported 时不得自行补造检定。"
+        "玩家文字中显式写出的骰式只是一条原始手动掷骰，不得再叠加角色属性或伪装成系统属性检定。\n"
         "输出必须严格按以下四段分隔符输出（分隔符单独占一行，大小写一致，前后不要加任何符号/加粗）：\n"
         f"{protocol.NARRATION}\n"
         "(这里写叙事，使用 Markdown 也可以)\n"

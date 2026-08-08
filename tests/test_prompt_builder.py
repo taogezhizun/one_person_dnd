@@ -20,6 +20,19 @@ class TestPromptBuilder(unittest.TestCase):
         self.assertIn('"title"', system)
         self.assertIn('"next_step"', system)
 
+    def test_system_prompt_treats_system_adjudication_as_authoritative(self) -> None:
+        messages = build_dm_messages(
+            memory=RetrievedMemory(world_bible_blocks=[], story_blocks=[]),
+            state_block="",
+        )
+
+        system = messages[0].content
+
+        self.assertIn("唯一权威的规则结算", system)
+        self.assertIn("不得重掷", system)
+        self.assertIn("自然 1/20", system)
+        self.assertIn("原始手动掷骰", system)
+
     def test_context_pack_prompt_uses_only_retained_blocks(self) -> None:
         pack = ContextPack(
             campaign_id=1,

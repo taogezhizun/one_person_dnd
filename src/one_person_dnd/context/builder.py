@@ -30,6 +30,7 @@ _CORE_CONTEXT_KINDS = {
     "scene_state",
 }
 _CORE_CONTEXT_SOURCES = {"sessions.pinned_world_notes"}
+_MANDATORY_PROMPT_KINDS = {"action_assessment"}
 _CONTEXT_BUDGET_SKIP_REASON = "因上下文预算裁剪，未注入本回合 prompt。"
 
 
@@ -167,13 +168,38 @@ def build_context_pack(
             )
         )
 
-    assessment_text = "\n".join(
-        [
-            f"action_type: {assessment.action_type}",
-            "signals: " + ", ".join(assessment.signals),
-            "warnings: " + ", ".join(assessment.warnings),
-        ]
-    ).strip()
+    assessment_lines = [
+        f"action_type: {assessment.action_type}",
+        "signals: " + ", ".join(assessment.signals),
+        "warnings: " + ", ".join(assessment.warnings),
+    ]
+    adjudication = assessment.adjudication
+    if adjudication is not None:
+        assessment_lines.extend(
+            [
+                f"adjudication_status: {adjudication.status}",
+                f"adjudication_policy: {adjudication.policy_version}",
+            ]
+        )
+        if adjudication.manual_rolls:
+            assessment_lines.append("manual_rolls: raw_only; not a canonical ability check")
+        if adjudication.check is not None:
+            check = adjudication.check
+            assessment_lines.extend(
+                [
+                    f"test_kind: {check.test_kind}",
+                    f"intent: {check.intent}",
+                    f"ability_skill: {check.ability}" + (f" / {check.skill}" if check.skill else ""),
+                    f"dc: {check.dc} ({check.dc_reason})",
+                    f"roll_mode: {check.roll_mode}; d20s: {list(check.d20s)}; selected: {check.selected_d20}",
+                    "modifiers: "
+                    f"ability {check.ability_modifier:+d}, proficiency {check.proficiency_modifier:+d}, "
+                    f"circumstance {check.circumstance_modifier:+d}",
+                    f"authoritative_total: {check.total}; outcome: {check.outcome}",
+                    "dm_instruction: narrate the authoritative outcome; do not reroll or alter DC/modifiers",
+                ]
+            )
+    assessment_text = "\n".join(assessment_lines).strip()
     blocks.append(
         ContextBlock(
             kind="action_assessment",
@@ -209,10 +235,25 @@ def _apply_context_budget(blocks: list[ContextBlock], max_chars: int) -> tuple[l
         reverse=True,
     )
 
-    used_chars = 0
-    retained_indices: set[int] = set()
-    retained_core_count = 0
+    # The frozen action assessment is the mechanical fact the DM must narrate.
+    # Treat it as budget-exempt: even an unusually small user-configured budget
+    # must not make the model lose the already-committed DC, roll, or outcome.
+    retained_indices = {
+        idx for idx, block in candidates if block.kind in _MANDATORY_PROMPT_KINDS
+    }
+    used_chars = sum(
+        len((block.content or "").strip())
+        for idx, block in candidates
+        if idx in retained_indices
+    )
+    retained_core_count = sum(
+        1
+        for idx, block in candidates
+        if idx in retained_indices and _is_core_context_block(block)
+    )
     for idx, block in ranked:
+        if idx in retained_indices:
+            continue
         block_chars = len((block.content or "").strip())
         is_core = _is_core_context_block(block)
         if used_chars + block_chars <= max_chars:

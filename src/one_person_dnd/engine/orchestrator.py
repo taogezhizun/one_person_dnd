@@ -9,6 +9,7 @@ from pathlib import Path
 from one_person_dnd.config import LLMConfig, MemoryConfig
 from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import (
+    adjudication_records,
     sessions,
     state_change_requests,
     story_journal,
@@ -93,6 +94,7 @@ class TurnResult:
     action_assessment: ActionAssessment | None = None
     critic_warnings: list[str] = field(default_factory=list)
     response_warnings: list[str] = field(default_factory=list)
+    replayed: bool = False
 
 
 def _next_turn_index(conn: sqlite3.Connection, session_id: int) -> int:
@@ -110,6 +112,8 @@ def persist_raw_turn(
     player_text: str,
     dm_raw: str,
     dice_events: list[DiceEvent] | None = None,
+    attempt_id: str | None = None,
+    adjudication_json: str | None = None,
 ) -> tuple[int, list[DiceEvent]]:
     """
     Phase 1 (raw, durable): record exactly what the player already saw streamed to
@@ -120,17 +124,33 @@ def persist_raw_turn(
     rollup) is attempted, so a later enrichment failure can never erase or hide a
     turn the player already saw. Returns (turn_index, safe_dice_events).
     """
-    turn_index = _next_turn_index(conn, session_id)
     safe_dice_events = list(dice_events or [])
-    turn_logs.insert_turn_log(
-        conn,
-        session_id=session_id,
-        turn_index=turn_index,
-        player_text=player_text,
-        dm_text=dm_raw,
-        dice_events_json=json.dumps(safe_dice_events, ensure_ascii=False),
-    )
-    conn.commit()
+    try:
+        turn_index = _next_turn_index(conn, session_id)
+        turn_logs.insert_turn_log(
+            conn,
+            session_id=session_id,
+            turn_index=turn_index,
+            player_text=player_text,
+            dm_text=dm_raw,
+            dice_events_json=json.dumps(safe_dice_events, ensure_ascii=False),
+            attempt_id=attempt_id,
+            adjudication_json=adjudication_json,
+        )
+        if attempt_id:
+            if not adjudication_json:
+                raise ValueError("attempt_id requires adjudication_json")
+            if not adjudication_records.mark_completed(
+                conn,
+                session_id=session_id,
+                attempt_id=attempt_id,
+                turn_index=turn_index,
+            ):
+                raise RuntimeError("adjudication attempt could not be bound to persisted turn")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return turn_index, safe_dice_events
 
 
@@ -186,6 +206,8 @@ def persist_turn(
     recalled_world: list[dict],
     recalled_context: list[dict] | None = None,
     dice_events: list[DiceEvent] | None = None,
+    attempt_id: str | None = None,
+    adjudication_json: str | None = None,
 ) -> TurnResult:
     """
     Persist turn logs, story journal, pending change requests, and rollup summaries.
@@ -202,6 +224,8 @@ def persist_turn(
         player_text=player_text,
         dm_raw=dm_raw,
         dice_events=dice_events,
+        attempt_id=attempt_id,
+        adjudication_json=adjudication_json,
     )
 
     try:
@@ -279,6 +303,81 @@ def _truncate(text: str, max_chars: int) -> str:
     return t[: max_chars - 1].rstrip() + "…"
 
 
+def _compact_memory_blocks(blocks: list[str], max_chars: int, *, separator: str = "\n") -> str:
+    """Keep the premise and latest facts when deterministic memory exceeds its budget.
+
+    Exact duplicate blocks are removed first. When the remaining text is still
+    too long, a bounded prefix and suffix are retained with an explicit omission
+    marker between them. This is intentionally extractive: rollup never invents
+    or paraphrases story facts without an LLM.
+    """
+    if max_chars <= 0:
+        return ""
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for block in blocks:
+        normalized = (block or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(normalized)
+
+    merged = separator.join(unique)
+    if len(merged) <= max_chars:
+        return merged
+    if not unique:
+        return ""
+
+    marker = "…（中段记忆已压缩）…"
+    framing = separator + marker + separator
+    if len(framing) >= max_chars:
+        return _truncate(merged, max_chars)
+
+    content_budget = max_chars - len(framing)
+    prefix_budget = content_budget // 2
+    suffix_budget = content_budget - prefix_budget
+
+    prefix_parts: list[str] = []
+    prefix_chars = 0
+    prefix_end = 0
+    for idx, block in enumerate(unique):
+        added = len(block) + (len(separator) if prefix_parts else 0)
+        if prefix_parts and prefix_chars + added > prefix_budget:
+            break
+        if not prefix_parts and len(block) > prefix_budget:
+            prefix_parts.append(_truncate(block, prefix_budget))
+            prefix_chars = len(prefix_parts[0])
+            prefix_end = 1
+            break
+        prefix_parts.append(block)
+        prefix_chars += added
+        prefix_end = idx + 1
+
+    suffix_parts_reversed: list[str] = []
+    suffix_chars = 0
+    suffix_start = len(unique)
+    for idx in range(len(unique) - 1, prefix_end - 1, -1):
+        block = unique[idx]
+        added = len(block) + (len(separator) if suffix_parts_reversed else 0)
+        if suffix_parts_reversed and suffix_chars + added > suffix_budget:
+            break
+        if not suffix_parts_reversed and len(block) > suffix_budget:
+            suffix_parts_reversed.append(_truncate(block, suffix_budget))
+            suffix_chars = len(suffix_parts_reversed[0])
+            suffix_start = idx
+            break
+        suffix_parts_reversed.append(block)
+        suffix_chars += added
+        suffix_start = idx
+
+    prefix = separator.join(prefix_parts)
+    suffix = separator.join(reversed(suffix_parts_reversed))
+    if suffix_start <= prefix_end:
+        return _truncate(merged, max_chars)
+    return prefix + framing + suffix
+
+
 def _maybe_rollup_summaries(conn: sqlite3.Connection, *, session_id: int, current_turn_index: int) -> None:
     """
     MVP rollup strategy:
@@ -319,7 +418,7 @@ def _maybe_rollup_summaries(conn: sqlite3.Connection, *, session_id: int, curren
         s = (r["summary"] or "").strip()
         if s:
             lines.append(s)
-    chapter_text = _truncate("\n".join(lines), CHAPTER_MAX_CHARS) or "（空）"
+    chapter_text = _compact_memory_blocks(lines, CHAPTER_MAX_CHARS) or "（空）"
     summaries.insert_summary(
         conn,
         session_id=session_id,
@@ -333,8 +432,12 @@ def _maybe_rollup_summaries(conn: sqlite3.Connection, *, session_id: int, curren
     chapters = summaries.list_chapter_summaries(conn, session_id=session_id, limit=200)
     if len(chapters) < CAMPAIGN_REGEN_CHAPTERS:
         return
-    merged = "\n\n".join([f"[{c['start_turn']}-{c['end_turn']}]\n{c['summary']}" for c in chapters]).strip()
-    campaign_text = _truncate(merged, CAMPAIGN_MAX_CHARS) or "（空）"
+    chapter_blocks = [f"[{c['start_turn']}-{c['end_turn']}]\n{c['summary']}" for c in chapters]
+    campaign_text = _compact_memory_blocks(
+        chapter_blocks,
+        CAMPAIGN_MAX_CHARS,
+        separator="\n\n",
+    ) or "（空）"
     latest_end = max(int(c["end_turn"]) for c in chapters)
     summaries.delete_campaign_summaries(conn, session_id=session_id)
     summaries.insert_summary(

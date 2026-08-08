@@ -49,7 +49,10 @@ def _load_updates(delta_json_text: str) -> list[dict[str, Any]]:
             raise GuardrailError(f"updates[{idx}] 必须是对象")
         update: dict[str, Any] = {}
         if "id" in item:
-            update["id"] = _optional_int(item.get("id"), field="id")
+            thread_id = item.get("id")
+            if type(thread_id) is not int or thread_id <= 0:
+                raise GuardrailError("id 必须是正整数")
+            update["id"] = thread_id
         if "priority" in item:
             priority = _optional_int(item.get("priority"), field="priority")
             if priority is not None:
@@ -68,6 +71,11 @@ def _load_updates(delta_json_text: str) -> list[dict[str, Any]]:
             raise GuardrailError(f"updates[{idx}] 新建剧情线时必须提供 title")
         normalized.append(update)
     return normalized
+
+
+def validate_thread_updates_json(delta_json_text: str) -> list[dict[str, Any]]:
+    """Validate and normalize a THREAD_UPDATES payload without applying it."""
+    return _load_updates(delta_json_text)
 
 
 def preview_thread_updates_json(delta_json_text: str) -> StateChangePreview:

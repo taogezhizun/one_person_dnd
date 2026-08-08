@@ -25,9 +25,30 @@
             <span class="assessment-pill assessment-pill--warn" title="{{ w }}">{{ action_warning_labels.get(w, w) }}</span>
           {% endfor %}
         </div>
+        {% set adjudication = turn.action_assessment.adjudication %}
+        {% if adjudication and adjudication.check %}
+          {% set check = adjudication.check %}
+          <div class="adjudication-summary" data-adjudication-summary>
+            <div>
+              <strong>{{ "成功" if check.outcome == "success" else "失败" }}</strong>
+              · {{ check.ability }}{% if check.skill %} / {{ check.skill }}{% endif %}
+              · DC {{ check.dc }}
+            </div>
+            <div class="muted">
+              d20 [{{ check.d20s | join(", ") }}] 取 {{ check.selected_d20 }}
+              {{ "%+d"|format(check.ability_modifier) }} 属性
+              {{ "%+d"|format(check.proficiency_modifier) }} 熟练
+              {{ "%+d"|format(check.circumstance_modifier) }} 情境
+              = {{ check.total }}
+              {% if check.roll_mode != "normal" %}· {{ "优势" if check.roll_mode == "advantage" else "劣势" }}{% endif %}
+              {% if check.natural_face %}· {{ "自然 20" if check.natural_face == "natural_20" else "自然 1" }}{% endif %}
+            </div>
+            {% if check.intent %}<div class="muted">意图：{{ check.intent }}</div>{% endif %}
+          </div>
+        {% endif %}
       </div>
     {% endif %}
-    {% if turn.dice_events and turn.dice_events|length > 0 %}
+    {% if turn.dice_events and turn.dice_events|length > 0 and not (turn.action_assessment and turn.action_assessment.adjudication and turn.action_assessment.adjudication.check) %}
       <div class="dice-events">
         <div class="muted">系统掷骰</div>
         <ul class="dice-events__list">

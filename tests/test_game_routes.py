@@ -10,8 +10,9 @@ from one_person_dnd.db.repos import app_settings, campaigns, plot_threads, sessi
 from one_person_dnd.db.schema import init_db
 from one_person_dnd.db.conn import get_connection
 from one_person_dnd.domain.actions import ActionAssessment
-from one_person_dnd.engine.parser import parse_dm_text
-from one_person_dnd.llm import ChatMessage
+from one_person_dnd.engine.orchestrator import TurnResult
+from one_person_dnd.engine.parser import DMStructuredResponse, parse_dm_text
+from one_person_dnd.llm import ChatMessage, LLMClientError
 from one_person_dnd.paths import AppPaths
 from one_person_dnd.web.routes import game
 
@@ -257,6 +258,7 @@ class TestGameRoutes(unittest.TestCase):
         class RecordingPipeline:
             used = False
             captured_state_block = None
+            captured_attempt_id = None
 
             def __init__(self, *, dm_client) -> None:
                 self.dm_client = dm_client
@@ -264,6 +266,7 @@ class TestGameRoutes(unittest.TestCase):
             def run_non_streaming(self, conn, *, action, memory_cfg, state_block="", cheat_prompt=""):
                 RecordingPipeline.used = True
                 RecordingPipeline.captured_state_block = state_block
+                RecordingPipeline.captured_attempt_id = action.attempt_id
                 return SimpleNamespace(
                     turn_index=0,
                     dm_raw_text=protocol,
@@ -306,18 +309,97 @@ class TestGameRoutes(unittest.TestCase):
                     campaign_id=campaign_id,
                     session_id=session_id,
                     player_text="我推开门",
+                    attempt_id="client-non-stream-attempt",
                     tags="门厅",
                     state_block="只记录本回合额外线索",
                 )
 
             self.assertTrue(RecordingPipeline.used)
             self.assertEqual(RecordingPipeline.captured_state_block, "只记录本回合额外线索")
-            self.assertEqual(context["turn"]["dm"].narration, "门开了。")
+            self.assertEqual(RecordingPipeline.captured_attempt_id, "client-non-stream-attempt")
+            self.assertEqual(context["turn"]["dm"]["narration"], "门开了。")
             self.assertEqual(context["turn"]["action_assessment"]["action_type"], "social")
             self.assertEqual(context["turn"]["action_assessment"]["warnings"], ["declared_success"])
             self.assertEqual(context["turn"]["critic_warnings"], ["choice_count_out_of_range"])
             self.assertEqual(context["turn"]["response_warnings"], ["duplicate_choices"])
             self.assertEqual(context["recalled_context"][0]["kind"], "action_assessment")
+        finally:
+            tmp.cleanup()
+
+    def test_non_streaming_turn_generates_attempt_id_for_direct_call_default(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        class RecordingPipeline:
+            captured_attempt_id = None
+
+            def __init__(self, *, dm_client) -> None:
+                self.dm_client = dm_client
+
+            def run_non_streaming(self, conn, *, action, memory_cfg, state_block="", cheat_prompt=""):
+                RecordingPipeline.captured_attempt_id = action.attempt_id
+                return SimpleNamespace(turn_index=0, recalled_world=[], recalled_context=[])
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.game.load_active_llm_config",
+                    return_value=LLMConfig(base_url="http://example.test/v1", api_key="k", model="m"),
+                ),
+                patch("one_person_dnd.web.routes.game.create_llm_client", return_value=object()),
+                patch("one_person_dnd.web.routes.game.TurnPipeline", RecordingPipeline, create=True),
+                patch("one_person_dnd.web.routes.game.turn_presenter.present_result", return_value={}),
+                patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                game.game_turn(
+                    request=object(),
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    player_text="我检查门锁",
+                    tags="",
+                    state_block="",
+                )
+
+            self.assertIsInstance(RecordingPipeline.captured_attempt_id, str)
+            self.assertTrue(RecordingPipeline.captured_attempt_id)
+        finally:
+            tmp.cleanup()
+
+    def test_non_streaming_llm_error_marks_turn_as_not_accepted(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        class FailingPipeline:
+            def __init__(self, *, dm_client) -> None:
+                self.dm_client = dm_client
+
+            def run_non_streaming(self, conn, **kwargs):
+                raise LLMClientError("provider unavailable")
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.game.load_active_llm_config",
+                    return_value=LLMConfig(base_url="http://example.test/v1", api_key="k", model="m"),
+                ),
+                patch("one_person_dnd.web.routes.game.create_llm_client", return_value=object()),
+                patch("one_person_dnd.web.routes.game.TurnPipeline", FailingPipeline, create=True),
+                patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda **kwargs: kwargs
+                response = game.game_turn(
+                    request=object(),
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    player_text="我检查门锁",
+                    attempt_id="retry-same-attempt",
+                    tags="",
+                    state_block="",
+                )
+
+            self.assertEqual(response["name"], "partials/chat_turn_error_append.html")
+            self.assertEqual(response["headers"]["X-Turn-Accepted"], "0")
         finally:
             tmp.cleanup()
 
@@ -434,6 +516,7 @@ class TestGameRoutes(unittest.TestCase):
 
         class RecordingPipeline:
             prepared = False
+            captured_attempt_id = None
 
             def __init__(self, *, dm_client) -> None:
                 self.dm_client = dm_client
@@ -441,6 +524,7 @@ class TestGameRoutes(unittest.TestCase):
 
             def prepare_messages(self, conn, *, action, memory_cfg, state_block="", cheat_prompt=""):
                 RecordingPipeline.prepared = True
+                RecordingPipeline.captured_attempt_id = action.attempt_id
                 return (
                     [ChatMessage(role="user", content=action.text)],
                     [{"title": "门厅"}],
@@ -508,12 +592,14 @@ class TestGameRoutes(unittest.TestCase):
                     campaign_id=campaign_id,
                     session_id=session_id,
                     player_text="我推开门",
+                    attempt_id="client-stream-attempt",
                     tags="门厅",
                     state_block="",
                 )
                 body = asyncio.run(collect_body(response))
 
             self.assertTrue(RecordingPipeline.prepared)
+            self.assertEqual(RecordingPipeline.captured_attempt_id, "client-stream-attempt")
             self.assertIn("event: final", body)
             self.assertIn('"recalled_world": [{"title": "门厅"}]', body)
             self.assertIn('"recalled_context": [{"kind": "world_bible"', body)
@@ -579,5 +665,67 @@ class TestGameRoutes(unittest.TestCase):
             finally:
                 conn.close()
             self.assertEqual(pending, [])
+        finally:
+            tmp.cleanup()
+
+    def test_streaming_completed_attempt_returns_final_without_calling_llm(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        class UnexpectedStreamClient:
+            def chat_stream_sse(self, messages):
+                raise AssertionError("completed attempt must not stream again")
+
+        completed = TurnResult(
+            turn_index=4,
+            dm_raw_text="stored",
+            dm=DMStructuredResponse(
+                narration="这是已保存的结果。",
+                choices=["进入房间", "检查门框"],
+                dm_notes="",
+                memory_suggestions="",
+            ),
+            recalled_world=[],
+            dice_events=[],
+            replayed=True,
+        )
+
+        class ReplayPipeline:
+            def __init__(self, *, dm_client) -> None:
+                self.dm_client = dm_client
+
+            def prepare_turn(self, conn, *, action, memory_cfg, state_block="", cheat_prompt=""):
+                return SimpleNamespace(completed_result=completed)
+
+        async def collect_body(response) -> str:
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+            return "".join(chunks)
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.game.load_active_llm_config",
+                    return_value=LLMConfig(base_url="http://example.test/v1", api_key="k", model="m"),
+                ),
+                patch("one_person_dnd.web.routes.game.create_llm_client", return_value=UnexpectedStreamClient()),
+                patch("one_person_dnd.web.routes.game.TurnPipeline", ReplayPipeline),
+            ):
+                response = game.game_turn_stream(
+                    request=object(),
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    player_text="我尝试开锁",
+                    attempt_id="completed-attempt",
+                    tags="",
+                    state_block="",
+                )
+                body = asyncio.run(collect_body(response))
+
+            self.assertIn("event: final", body)
+            self.assertNotIn("event: delta", body)
+            self.assertIn('"replayed": true', body)
+            self.assertIn("这是已保存的结果", body)
         finally:
             tmp.cleanup()

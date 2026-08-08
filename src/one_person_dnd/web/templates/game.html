@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 
+{% block body_class %}page-game{% endblock %}
 {% block title %}游戏 - one_person_dnd{% endblock %}
 
 {% block content %}
@@ -15,6 +16,7 @@
     >
       <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
       <input type="hidden" name="session_id" value="{{ session_id }}" />
+      <input type="hidden" name="attempt_id" value="" />
       <div class="action-composer__header">
         <div>
           <div class="action-composer__kicker">玩家回合</div>
@@ -35,7 +37,7 @@
       </div>
       <label class="label action-composer__field">
         下一步行动
-        <textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow autocomplete="off" placeholder="描述你的行动…"></textarea>
+        <textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow rows="1" autocomplete="off" placeholder="描述你的行动…"></textarea>
       </label>
       <div class="action-composer__feedback" data-choice-feedback role="status" aria-live="polite" hidden></div>
       <div class="action-composer__context-feedback" data-turn-context-feedback role="status" aria-live="polite" hidden></div>

@@ -29,7 +29,7 @@ class TestModelsRoutes(unittest.TestCase):
         tmp, paths = self._paths()
         try:
             with patch("one_person_dnd.web.routes.models.ensure_app_dirs", return_value=paths):
-                models.models_create(
+                response = models.models_create(
                     name="DeepSeek",
                     provider="deepseek",
                     base_url="",
@@ -49,6 +49,7 @@ class TestModelsRoutes(unittest.TestCase):
             self.assertEqual(profile["provider"], "deepseek")
             self.assertEqual(profile["base_url"], "https://api.deepseek.com/v1")
             self.assertEqual(profile["model"], "deepseek-chat")
+            self.assertEqual(response.headers["location"], "/models?created=1")
         finally:
             tmp.cleanup()
 
@@ -75,6 +76,27 @@ class TestModelsRoutes(unittest.TestCase):
         self.assertIn("data-provider-select", template)
         self.assertIn("data-base-url", template)
         self.assertIn("data-default-model", template)
+
+    def test_models_page_exposes_created_state_and_next_adventure_cta(self) -> None:
+        tmp, paths = self._paths()
+        try:
+            with (
+                patch("one_person_dnd.web.routes.models.ensure_default_llm_profile_from_ini"),
+                patch("one_person_dnd.web.routes.models.ensure_app_dirs", return_value=paths),
+                patch("one_person_dnd.web.routes.models.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                context = models.models_page(request=object(), created=1)
+
+            self.assertTrue(context["created"])
+            template = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
+            self.assertIn("模型配置已保存，建议先测试连接", template)
+            self.assertIn("保存成功不代表模型服务已经连通", template)
+            self.assertIn("#model-profile-{{ active_id }}", template)
+            self.assertIn(">去测试连接</a>", template)
+            self.assertIn('href="/new">创建新冒险', template)
+        finally:
+            tmp.cleanup()
 
     def test_update_keeps_existing_api_key_when_edit_field_is_blank(self) -> None:
         tmp, paths = self._paths()

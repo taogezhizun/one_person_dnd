@@ -4,12 +4,14 @@ import unittest
 from pathlib import Path
 
 from one_person_dnd.agents.action_judge import ActionJudgeAgent
+from one_person_dnd.adjudication import ActionAdjudicator, AdjudicationRequest, SequenceRoller
 from one_person_dnd.config import MemoryConfig
 from one_person_dnd.context.builder import build_context_pack
 from one_person_dnd.db.conn import get_connection
-from one_person_dnd.db.repos import campaigns, character_sheets, sessions, story_journal, world_bible
+from one_person_dnd.db.repos import campaigns, character_sheets, plot_threads, sessions, story_journal, world_bible
 from one_person_dnd.db.schema import init_db
 from one_person_dnd.domain.actions import PlayerAction
+from one_person_dnd.engine.prompt_builder import build_dm_messages_from_context_pack
 
 
 class TestContextPack(unittest.TestCase):
@@ -92,6 +94,82 @@ class TestContextPack(unittest.TestCase):
             self.assertIn("HP：8/12", character_blocks[0].content)
             self.assertIn("物品：短弓", character_blocks[0].content)
             self.assertEqual(character_blocks[0].source, "character_sheets")
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_open_thread_context_includes_canonical_id_for_updates(self) -> None:
+        tmp, conn = self._conn()
+        try:
+            campaign_id = campaigns.create_campaign(conn, "测试战役")
+            session_id = sessions.create_session(
+                conn,
+                campaign_id=campaign_id,
+                title="第一章",
+                current_scene="门厅",
+            )
+            thread_id = plot_threads.create_thread(
+                conn,
+                session_id=session_id,
+                title="失踪的信使",
+                priority=3,
+                next_step="追查码头脚印",
+            )
+            conn.commit()
+            action = PlayerAction(campaign_id=campaign_id, session_id=session_id, text="我追查信使")
+
+            pack = build_context_pack(
+                conn,
+                action=action,
+                assessment=ActionJudgeAgent().run(action),
+                memory_cfg=MemoryConfig(),
+            )
+
+            thread_block = next(block for block in pack.blocks if block.kind == "plot_threads")
+            self.assertIn(f"[#{thread_id} · P3]", thread_block.content)
+            self.assertIn("失踪的信使", thread_block.content)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_resolved_adjudication_is_injected_as_authoritative_context(self) -> None:
+        tmp, conn = self._conn()
+        try:
+            campaign_id = campaigns.create_campaign(conn, "测试战役")
+            session_id = sessions.create_session(
+                conn,
+                campaign_id=campaign_id,
+                title="第一章",
+                current_scene="锁门前",
+            )
+            character_sheets.upsert_character_sheet(
+                conn,
+                session_id=session_id,
+                json_text='{"party":[{"level":1,"abilities":{"DEX":14},"skill_proficiencies":[]}]}',
+            )
+            conn.commit()
+            action = PlayerAction(
+                campaign_id=campaign_id,
+                session_id=session_id,
+                text="我尝试开锁",
+                attempt_id="context-check",
+            )
+            record = ActionAdjudicator(conn=conn, roller=SequenceRoller([13])).adjudicate(
+                AdjudicationRequest(attempt_id=action.attempt_id, action=action)
+            )
+
+            pack = build_context_pack(
+                conn,
+                action=action,
+                assessment=record.to_action_assessment(),
+                memory_cfg=MemoryConfig(),
+            )
+
+            assessment_block = next(block for block in pack.blocks if block.kind == "action_assessment")
+            self.assertIn("adjudication_status: resolved", assessment_block.content)
+            self.assertIn("ability_skill: DEX", assessment_block.content)
+            self.assertIn("authoritative_total: 15; outcome: success", assessment_block.content)
+            self.assertIn("do not reroll", assessment_block.content)
         finally:
             conn.close()
             tmp.cleanup()
@@ -206,6 +284,53 @@ class TestContextPack(unittest.TestCase):
             self.assertIn("预算", skipped[0]["reason"])
             included = [item for item in pack.recalled_context if item.get("status") == "included"]
             self.assertTrue(any(item["kind"] == "character_state" for item in included))
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_tiny_context_budget_still_injects_frozen_adjudication_into_prompt(self) -> None:
+        tmp, conn = self._conn()
+        try:
+            campaign_id = campaigns.create_campaign(conn, "极小预算测试")
+            session_id = sessions.create_session(
+                conn,
+                campaign_id=campaign_id,
+                title="第一章",
+                current_scene="机关门前",
+            )
+            character_sheets.upsert_character_sheet(
+                conn,
+                session_id=session_id,
+                json_text='{"party":[{"name":"艾拉","level":1,"abilities":{"DEX":14}}]}',
+            )
+            conn.commit()
+            action = PlayerAction(
+                campaign_id=campaign_id,
+                session_id=session_id,
+                text="我尝试开锁",
+                attempt_id="tiny-budget-check",
+            )
+            record = ActionAdjudicator(conn=conn, roller=SequenceRoller([13])).adjudicate(
+                AdjudicationRequest(attempt_id=action.attempt_id, action=action)
+            )
+
+            pack = build_context_pack(
+                conn,
+                action=action,
+                assessment=record.to_action_assessment(),
+                memory_cfg=MemoryConfig(context_chars_for_prompt=1),
+            )
+
+            assessment_blocks = [block for block in pack.blocks if block.kind == "action_assessment"]
+            self.assertEqual(len(assessment_blocks), 1)
+            self.assertIn("authoritative_total: 15; outcome: success", assessment_blocks[0].content)
+            recalled_assessment = next(
+                item for item in pack.recalled_context if item["kind"] == "action_assessment"
+            )
+            self.assertEqual(recalled_assessment["status"], "included")
+
+            messages = build_dm_messages_from_context_pack(pack)
+            self.assertIn("authoritative_total: 15; outcome: success", messages[1].content)
         finally:
             conn.close()
             tmp.cleanup()

@@ -7,10 +7,38 @@ from pathlib import Path
 from one_person_dnd.db.conn import get_connection
 from one_person_dnd.db.repos import campaigns, plot_threads, sessions
 from one_person_dnd.db.schema import init_db
-from one_person_dnd.domain.thread_updates import apply_thread_updates_json, preview_thread_updates_json
+from one_person_dnd.domain.thread_updates import (
+    apply_thread_updates_json,
+    preview_thread_updates_json,
+    validate_thread_updates_json,
+)
+from one_person_dnd.engine.guardrails import GuardrailError
 
 
 class TestThreadUpdates(unittest.TestCase):
+    def test_validation_rejects_null_existing_thread_id(self) -> None:
+        with self.assertRaisesRegex(GuardrailError, "id 必须是正整数"):
+            validate_thread_updates_json('{"updates":[{"id":null,"status":"closed"}]}')
+
+    def test_validation_rejects_non_positive_existing_thread_id(self) -> None:
+        for invalid_id in (0, -1):
+            with self.subTest(invalid_id=invalid_id):
+                payload = json.dumps({"updates": [{"id": invalid_id, "status": "closed"}]})
+                with self.assertRaisesRegex(GuardrailError, "id 必须是正整数"):
+                    validate_thread_updates_json(payload)
+
+    def test_validation_rejects_non_integer_existing_thread_id(self) -> None:
+        for invalid_id in ("7", 1.5, True, [], {}):
+            with self.subTest(invalid_id=invalid_id):
+                payload = json.dumps({"updates": [{"id": invalid_id, "status": "closed"}]})
+                with self.assertRaisesRegex(GuardrailError, "id 必须是正整数"):
+                    validate_thread_updates_json(payload)
+
+    def test_validation_returns_normalized_updates_without_applying(self) -> None:
+        updates = validate_thread_updates_json('{"updates":[{"id":7,"status":"closed"}]}')
+
+        self.assertEqual(updates, [{"id": 7, "status": "closed"}])
+
     def _conn(self) -> tuple[tempfile.TemporaryDirectory, sqlite3.Connection, int, int]:
         tmp = tempfile.TemporaryDirectory()
         db_path = Path(tmp.name) / "test.sqlite3"

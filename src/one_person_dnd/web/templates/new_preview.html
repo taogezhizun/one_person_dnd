@@ -16,6 +16,7 @@
 
   <form method="post" action="/new/apply" class="new-preview-form">
     <textarea name="preview_json" hidden>{{ preview_json }}</textarea>
+    <textarea name="source_form_json" hidden>{{ source_form_json }}</textarea>
 
     <section class="card new-preview-summary">
       <div class="card__title">最后确认名称</div>
@@ -67,17 +68,21 @@
       {% if party %}
         <div class="character-preview-grid">
           {% for character in party %}
+            {% set abilities = character.get("abilities") or {} %}
+            {% set skill_proficiencies = character.get("skill_proficiencies") or [] %}
             <article class="character-preview-card">
               <div class="character-preview-card__portrait" aria-hidden="true">{{ (character.name or "？")[:1] }}</div>
               <div>
                 <h2>{{ character.name or "未命名角色" }}</h2>
-                <div class="muted">{{ character.race or "种族未定" }} · {{ character.class or "身份未定" }}</div>
+                <div class="muted">等级 {{ character.level or 1 }} · {{ character.race or "种族未定" }} · {{ character.class or "身份未定" }}</div>
                 {% if character.background %}<p>{{ character.background }}</p>{% endif %}
                 {% if character.goal %}<p><strong>目标：</strong>{{ character.goal }}</p>{% endif %}
                 <div class="character-preview-card__stats">
                   <span>生命 {{ character.hp if character.hp is defined else "—" }}</span>
                   <span>金币 {{ character.gold if character.gold is defined else "—" }}</span>
+                  {% for ability, score in abilities.items() %}<span>{{ ability }} {{ score }}</span>{% endfor %}
                 </div>
+                {% if skill_proficiencies %}<div class="muted">熟练技能：{{ skill_proficiencies|join("、") }}</div>{% endif %}
                 {% if character.inventory %}<div class="muted">随身物品：{{ character.inventory|join("、") }}</div>{% endif %}
               </div>
             </article>
@@ -101,7 +106,7 @@
 
     <div class="new-preview-actions">
       <button class="btn" type="submit">创建这场冒险并开始</button>
-      <a class="btn btn--ghost" href="/new">返回修改</a>
+      <button class="btn btn--ghost" type="submit" formaction="/new/return" formmethod="post" formnovalidate>返回修改</button>
     </div>
   </form>
 {% endblock %}

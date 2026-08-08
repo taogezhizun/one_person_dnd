@@ -167,6 +167,53 @@ class TestCharacterRoutes(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_change_apply_rejects_thread_update_with_null_id_without_500(self) -> None:
+        tmp, paths, session_id = self._paths_with_sheet()
+        conn = get_connection(paths.db_path)
+        try:
+            campaign_id = conn.execute(
+                "SELECT campaign_id FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()["campaign_id"]
+            request_id = state_change_requests.create_request(
+                conn,
+                session_id=session_id,
+                turn_index=5,
+                kind="thread_updates",
+                delta_json_text='{"updates":[{"id":null,"status":"closed"}]}',
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.character.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.character.get_current_campaign_session",
+                    return_value=(campaign_id, session_id),
+                ),
+                patch("one_person_dnd.web.routes.character.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                context = character.change_apply(request=object(), request_id=request_id)
+
+            self.assertEqual(context["notice_message"], "已拒绝：id 必须是正整数")
+            self.assertEqual(context["pending_count"], 0)
+            conn = get_connection(paths.db_path)
+            try:
+                rejected = state_change_requests.get_request(
+                    conn,
+                    request_id=request_id,
+                    session_id=session_id,
+                )
+            finally:
+                conn.close()
+            self.assertEqual(rejected["status"], "rejected")
+            self.assertEqual(rejected["error_text"], "id 必须是正整数")
+        finally:
+            tmp.cleanup()
+
     def test_quick_adjust_updates_top_level_legacy_character_sheet(self) -> None:
         tmp = tempfile.TemporaryDirectory()
         root = Path(tmp.name)

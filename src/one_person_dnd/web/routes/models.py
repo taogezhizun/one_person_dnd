@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/models", response_class=HTMLResponse)
-def models_page(request: Request) -> HTMLResponse:
+def models_page(request: Request, created: int = 0) -> HTMLResponse:
     ensure_default_llm_profile_from_ini()
     paths = ensure_app_dirs()
     conn = get_connection(paths.db_path)
@@ -32,6 +32,7 @@ def models_page(request: Request) -> HTMLResponse:
             "profiles": profiles,
             "active_id": int(active_id) if active_id and active_id.isdigit() else None,
             "provider_presets": list_provider_presets(),
+            "created": int(created) == 1,
         },
     )
 
@@ -86,7 +87,7 @@ def models_create(
         conn.commit()
     finally:
         conn.close()
-    return RedirectResponse(url="/models", status_code=303)
+    return RedirectResponse(url="/models?created=1", status_code=303)
 
 
 @router.post("/models/update")

@@ -73,14 +73,15 @@ Then check:
 - `/` loads and reports LLM configured when an active DB profile exists from `/models`, even if legacy `api_config.ini [llm]` is absent.
 - `/` leads with the active campaign, current chapter, character/DM state, recent story, and last-played time; `继续故事` is primary and `新冒险` is secondary.
 - `/models` lists existing profile cards before the folded creation area; DeepSeek appears first inside creation, custom OpenAI-compatible fields remain advanced, and blank edit keys preserve stored credentials without rendering them.
-- `/saves` lists existing adventures and chapters before folded creation forms. Restoring a snapshot must show a destructive confirmation and create an automatic safety snapshot before changing current state.
+- Saving a new model shows a “test connection first” next step rather than claiming the provider already works.
+- `/saves` lists existing adventures and chapters before folded creation forms, loads the latest 50 snapshots per chapter, and shows the total count/empty state. Restoring a snapshot must show a destructive confirmation and create an automatic safety snapshot before changing current state.
 - `/memory/world` loads.
-- `/game` loads with a story-first desktop layout. Empty chapters show the composer before empty history; chapters with turns show history first. The latest DM choices appear next to the composer and only fill the textarea, while historical choices are collapsed. Action assessment and dice stay under the player action; recalled context stays in World; critic/response diagnostics stay in System. At 1280×720, 1920×1080, and 2560×1440 there must be no horizontal page overflow, the sidebar should remain about 400px within its draggable limits, long history must scroll internally, and the composer must remain reachable. The maximum page content width is about 2160px. The pending-review callout remains hidden at zero, Cmd/Ctrl+Enter obeys the visible send-button state, and character mutation forms keep visible polite submission feedback.
+- `/game` loads with a story-first desktop layout. Empty chapters show the composer before empty history; chapters with turns show history first. The latest DM choices form a compact action deck beside the composer and only fill the textarea, while historical choices are collapsed. A meaningful exploration/social check shows ability/skill, DC, dice, modifiers, and outcome under the player action; a raw manual roll stays separate. Recalled context stays in World; critic/response diagnostics stay in System. At 1280×720, 1920×1080, and 2560×1440 there must be no horizontal page overflow, the sidebar should remain about 400px within its draggable limits, story and sidebar should scroll independently inside the remaining viewport, and the composer must remain reachable. The maximum page content width is about 2160px. The pending-review callout remains hidden at zero, Cmd/Ctrl+Enter obeys the visible send-button state, and character mutation forms keep visible polite submission feedback.
 
 With a working LLM profile:
 
 - `/models` test returns a response.
-- `/new` can produce an editable proposal, generate a readable preview, and create a new campaign/first session without mutating the previously active save.
+- `/new` can produce an editable proposal, generate a readable preview with level/six abilities/skill proficiencies, return to the form without losing the full draft, and create a new campaign/first session without mutating the previously active save.
 - `/game` can submit a turn and append a DM response; any DM choice buttons should fill the player input when clicked.
 - `/character/panel` shows a readable character overview when a character sheet exists, including abilities, inventory, conditions, and notes; HP/gold quick adjustment and status/inventory/note saving should preserve existing character fields, while raw JSON remains available in the advanced section.
 
@@ -94,6 +95,8 @@ api_config.ini
 ```
 
 Backup:
+
+Stop the app before copying the database. SQLite uses WAL mode, so copying only the main database file while it is live can omit committed data still represented by WAL files. For a live backup, use SQLite's online backup API rather than `cp`.
 
 ```bash
 cp api_config.ini api_config.ini.backup
@@ -179,11 +182,26 @@ Non-streaming turns can attempt one delimiter repair call and, after `Continuity
 
 Check `src/one_person_dnd/agents/response_evaluator.py`. It should warn with `duplicate_choices`, `non_actionable_choice`, or `choice_declares_outcome`, and `TurnPipeline.run_non_streaming()` may use those warnings for the single playability repair call. Streaming output should only surface `TurnResult.response_warnings` as “反应评估”; it must not issue a second LLM request after the stream ends.
 
+### An ability check changes after retry or creates a duplicate turn
+
+Inspect the whole attempt chain before looking at the LLM:
+
+1. The browser form must send a stable `attempt_id`; editing action text, tags, or turn context intentionally creates a new id.
+2. `TurnPipeline.prepare_turn()` must commit `adjudication_records` before the provider call.
+3. The first raw turn write must store the same `attempt_id` and `adjudication_json`, then bind the ledger row to that turn in the same transaction.
+4. A completed retry must emit the stored final turn without a new LLM call. An incomplete provider retry must reuse the stored record and dice.
+
+Do not fix this with a deterministic RNG seed or by rerolling after a timeout. Replay comes from the stored record. If `AttemptConflict` appears, the same id was reused with changed text/tags/context and must fail closed.
+
+### A check does not use the expected character modifier
+
+Inspect `character_sheets.json_text` through the character panel's advanced view. Rules-ready sheets use `level`, six `abilities`/`ability_scores` keys (`STR`, `DEX`, `CON`, `INT`, `WIS`, `CHA`), and `skill_proficiencies`. Missing legacy scores temporarily use 10 and show a warning; malformed scores or an invalid level needed for proficiency produce `needs_input` without rolling. Attacks, saves, initiative, damage, and full combat are intentionally unsupported in this slice.
+
 ### State changes do not apply automatically
 
 This is expected. DM `===STATE_DELTA===` creates a pending request. The player applies or rejects it from the character panel. The panel uses `domain.state_changes.preview_state_delta()` to show HP/gold/inventory-style previews where possible, then `/character/change/apply` uses `guardrails.validate_state_delta_json()` and `domain.state_changes.merge_state_delta()` before writing the character sheet.
 
-Malformed `STATE_DELTA` JSON should not create a pending request on either non-streaming or streaming turns. `ContinuityCriticAgent` emits `malformed_state_delta`, and `TurnPipeline.persist_dm_output()` suppresses that structured delta before persistence while keeping the raw DM output in `turn_logs`. Do not include `malformed_state_delta` in the automatic Critic repair set; state deltas must stay reviewable instead of silently rewritten. Critic warnings are also carried in `TurnResult.critic_warnings` and rendered as “DM 审查” for newly generated turns. Streaming still must not make a second LLM repair call; it only reuses the shared post-stream critic/persistence step.
+Malformed `STATE_DELTA` or `THREAD_UPDATES` JSON should not create a pending request on either non-streaming or streaming turns. `ContinuityCriticAgent` emits `malformed_state_delta` / `malformed_thread_updates`, and `TurnPipeline.persist_dm_output()` suppresses that structured section before persistence while keeping raw DM output in `turn_logs`. Do not add either malformed structured payload to automatic rewriting. Critic warnings are carried in `TurnResult.critic_warnings`; streaming still must not make a second LLM repair call.
 
 The character panel and turn prompt share the same parser: `domain.characters.summarize_character_sheet()`. If HP/gold/inventory/conditions/notes appear wrong, inspect the active session's `character_sheets.json_text` and make sure the first `party` entry or top-level legacy fields contain those values.
 
@@ -199,7 +217,7 @@ Legacy callers that import `engine.run_turn()` should still follow the same path
 
 ### Recalled context is missing from the game page
 
-Check the full path instead of only `recalled_world`: `context.builder._build_recalled_context()` should populate `ContextPack.recalled_context`; `TurnPipeline.prepare_messages()` should return it; `TurnPipeline.persist_dm_output()` and `TurnResult` should keep it; `web/routes/game.py` should send it as `recalled_context` in both non-streaming template context and streaming final JSON. The server partial and inline streaming renderer should both render the “本回合参考” block.
+Check the full path instead of only `recalled_world`: `context.builder._build_recalled_context()` should populate `ContextPack.recalled_context`; `TurnPipeline.prepare_turn()` should retain it (`prepare_messages()` is only a compatibility projection); `TurnPipeline.persist_dm_output()` and `TurnResult` should keep it; `web/routes/game.py` should send it as `recalled_context` in both non-streaming template context and streaming final JSON. The server partial and inline streaming renderer should both render the “本回合参考” block.
 
 ### Recalled context is shown as skipped
 

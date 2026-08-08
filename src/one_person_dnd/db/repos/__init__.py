@@ -1,4 +1,5 @@
 __all__ = [
+    "adjudication_records",
     "app_settings",
     "campaigns",
     "character_sheets",
@@ -16,6 +17,7 @@ __all__ = [
 ]
 
 from one_person_dnd.db.repos import (
+    adjudication_records,
     app_settings,
     campaigns,
     character_sheets,

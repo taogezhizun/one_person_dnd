@@ -37,13 +37,25 @@ ACTION_SIGNAL_LABELS: dict[str, str] = {
     "time_passes": "时间会推进",
     "roll_may_be_needed": "可能需要掷骰",
     "dm_should_adjudicate_outcome": "结果由 DM 判定",
+    "adjudication_unsupported": "本轮规则暂不支持",
+    "manual_roll_not_canonical": "手动骰仅作原始结果",
+    "no_check_needed": "无需系统检定",
+    "adjudication_needs_input": "角色规则数据需补充",
+    "ability_check_resolved": "属性检定已结算",
 }
 
 ACTION_WARNING_LABELS: dict[str, str] = {
     "possible_overreach": "行动可能越权",
     "declared_success": "行动描述已包含结果",
     "npc_outcome_claim": "人物结果需要 DM 判定",
+    "unsupported_attack_save_or_combat": "战斗/攻击/豁免尚未自动结算",
+    "invalid_level_for_proficiency": "角色等级无效，无法计算熟练",
+    "proficiency_level_defaulted_to_1": "缺少等级，熟练暂按 1 级计算",
 }
+
+for _ability in ("STR", "DEX", "CON", "INT", "WIS", "CHA"):
+    ACTION_WARNING_LABELS[f"ability_defaulted_to_10:{_ability}"] = f"缺少 {_ability}，本次暂按 10 计算"
+    ACTION_WARNING_LABELS[f"invalid_ability_score:{_ability}"] = f"{_ability} 数值无效，需要修正角色卡"
 
 # NOTE: prior to this refactor, `turn_diagnostics.html` (server-rendered
 # historical turns) and `app.js` (streaming new turns) had already drifted
@@ -61,6 +73,9 @@ CRITIC_WARNING_LABELS: dict[str, str] = {
     "empty_narration": "叙事内容为空",
     "choice_count_out_of_range": "行动建议数量不适合继续游玩",
     "malformed_state_delta": "状态变更建议格式有误",
+    "malformed_thread_updates": "剧情线更新建议格式有误",
+    "adjudication_outcome_conflict": "DM 叙事与系统检定结果冲突",
+    "unresolved_check_declared": "角色数据不足时 DM 提前宣布了检定结果",
 }
 
 RESPONSE_WARNING_LABELS: dict[str, str] = {

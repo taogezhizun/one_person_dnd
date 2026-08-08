@@ -35,6 +35,14 @@ class TestUITemplates(unittest.TestCase):
             self.assertIn(src, base)
         self.assertNotIn("unpkg.com", base)
 
+    def test_base_locks_htmx_to_same_origin_without_dynamic_code(self) -> None:
+        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+
+        self.assertIn('name="htmx-config"', base)
+        self.assertIn('"selfRequestsOnly":true', base)
+        self.assertIn('"allowScriptTags":false', base)
+        self.assertIn('"allowEval":false', base)
+
     def test_home_model_setup_cta_points_to_models(self) -> None:
         index = Path("src/one_person_dnd/web/templates/index.html").read_text(encoding="utf-8")
 
@@ -74,6 +82,19 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("initLongSubmitForms();", app_js)
         self.assertIn(".form-status", css)
 
+    def test_turn_form_persists_attempt_identity_until_success(self) -> None:
+        game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
+
+        self.assertIn('name="attempt_id"', game)
+        self.assertIn("function ensureTurnAttempt(form)", app_js)
+        self.assertIn("function initTurnAttemptPersistence()", app_js)
+        self.assertIn("TURN_ATTEMPT_STORAGE_PREFIX", app_js)
+        self.assertIn("ensureTurnAttempt(form);", app_js)
+        self.assertIn("clearTurnAttempt(form);", app_js)
+        self.assertIn('getResponseHeader("X-Turn-Accepted")', app_js)
+        self.assertIn('turnAccepted === "0"', app_js)
+
     def test_new_adventure_preview_summarizes_generated_content(self) -> None:
         template = Path("src/one_person_dnd/web/templates/new_preview.html").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
@@ -85,6 +106,10 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("开场地点或局面", template)
         self.assertIn("查看技术数据", template)
         self.assertIn("返回修改", template)
+        self.assertIn('name="source_form_json"', template)
+        self.assertIn('formaction="/new/return"', template)
+        self.assertIn('formmethod="post"', template)
+        self.assertNotIn('href="/new">返回修改', template)
         self.assertNotIn(">放弃<", template)
         self.assertIn(".new-preview-summary", css)
         self.assertIn(".new-preview-summary__grid", css)
@@ -104,9 +129,20 @@ class TestUITemplates(unittest.TestCase):
                     {"type": "Location", "title": "雾港", "tags": "港口", "content": "潮湿的旧港。"},
                     {"type": "NPC", "title": "伊莲", "tags": "盟友", "content": "知道密道。"},
                 ],
-                "character_sheet": {"party": [{"name": "阿洛"}], "notes": "开局在码头"},
+                "character_sheet": {
+                    "party": [
+                        {
+                            "name": "阿洛",
+                            "level": 3,
+                            "abilities": {"STR": 12, "DEX": 15},
+                            "skill_proficiencies": ["Perception", "Stealth"],
+                        }
+                    ],
+                    "notes": "开局在码头",
+                },
             },
             preview_json="{}",
+            source_form_json='{"form_values":{},"proposal":{}}',
             character_sheet_json='{\n  "party": [\n    {"name": "阿洛"}\n  ]\n}',
         )
 
@@ -116,6 +152,9 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('class="status-tile__value">1 名</div>', html)
         self.assertIn("阿洛", html)
         self.assertIn("雾港疑云", html)
+        self.assertIn("等级 3", html)
+        self.assertIn("STR 12", html)
+        self.assertIn("熟练技能：Perception、Stealth", html)
 
     def test_home_uses_adventure_dashboard_visual_shell(self) -> None:
         index = Path("src/one_person_dnd/web/templates/index.html").read_text(encoding="utf-8")
@@ -517,7 +556,7 @@ class TestUITemplates(unittest.TestCase):
             ".chat-card--story-first {\n"
             "  display: flex;\n"
             "  flex-direction: column;\n"
-            "  height: clamp(360px, calc(100vh - 332px), 920px);",
+            "  height: 100%;",
             css,
         )
         self.assertIn("  min-height: 0;", css)
@@ -525,10 +564,10 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".chat-card--story-first .chat-history {\n  flex: 1 1 auto;\n  min-height: 0;\n  max-height: none;", css)
         self.assertIn(".chat-card--story-first .play-tools", css)
         self.assertIn(".chat-card--story-first .play-tools {\n  position: static;", css)
-        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);", css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", css)
         self.assertIn(".chat-card--story-first .action-composer {\n  position: static;", css)
         self.assertIn(".chat-card--story-first .action-composer__controls {\n  grid-column: 2;", css)
-        self.assertIn(".chat-card--story-first .quick-roll-panel {\n  padding: 8px 10px;", css)
+        self.assertIn(".chat-card--story-first .quick-roll-panel {\n  align-items: center;", css)
 
     def test_mobile_game_chrome_prioritizes_action_loop_first_viewport(self) -> None:
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
@@ -767,7 +806,8 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("data-review-callout-text", game)
         self.assertIn('surfacePendingReview(payload.turn);', app_js)
         self.assertLess(app_js.index("refreshCharacterPanel();"), app_js.index("surfacePendingReview(payload.turn);"))
-        self.assertIn("if (evt.detail && evt.detail.successful === false)", app_js)
+        self.assertIn("evt.detail && evt.detail.successful === false", app_js)
+        self.assertIn('turnAccepted === "0"', app_js)
 
     def test_desktop_game_chrome_keeps_action_loop_compact(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -891,7 +931,7 @@ class TestUITemplates(unittest.TestCase):
             ".chat-card--story-first {\n"
             "  display: flex;\n"
             "  flex-direction: column;\n"
-            "  height: clamp(360px, calc(100vh - 332px), 920px);",
+            "  height: 100%;",
             css,
         )
         self.assertIn("  min-height: 0;", css)
@@ -900,25 +940,37 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".chat-card--story-first .action-composer .textarea {\n  min-height: 56px;", css)
 
     def test_short_desktop_story_first_does_not_clip_action_loop(self) -> None:
+        game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
+        self.assertIn('data-autogrow rows="1"', game)
         self.assertIn("@media (min-width: 981px) and (max-height: 760px) {", css)
         self.assertIn(
-            ".chat-card--story-first {\n"
-            "    height: auto;\n"
-            "    overflow: visible;\n"
+            ".page-game .app-main {\n"
+            "    padding-top: 10px;\n"
             "  }",
             css,
         )
         self.assertIn(
-            ".chat-card--story-first .chat-history {\n"
-            "    flex: 0 0 auto;\n"
-            "    height: clamp(180px, 26vh, 190px);\n"
-            "    min-height: clamp(180px, 26vh, 190px);\n"
-            "    max-height: clamp(180px, 26vh, 190px);\n"
+            ".chat-card--story-first .chat-history-shell {\n"
+            "    min-height: 150px;\n"
             "  }",
             css,
         )
+        self.assertIn(".latest-choice-tray__heading {\n    display: none;", css)
+        self.assertIn(".chat-card--story-first .action-composer__notice {\n    align-items: center;", css)
+        self.assertIn("grid-template-columns: auto minmax(0, 1fr) auto;", css)
+        self.assertIn(
+            ".chat-card--story-first .play-tools {\n"
+            "    max-height: calc(100% - 200px);\n"
+            "    overflow-y: auto;",
+            css,
+        )
+        self.assertNotIn("height: clamp(180px, 26vh, 190px);", css)
+        self.assertIn(".page-game .page-title-row {", css)
+        self.assertIn("margin-top: 0;", css)
+        self.assertIn(".page-game .status-tile__label {", css)
+        self.assertIn("display: none;", css)
 
     def test_desktop_story_first_allows_resizing_before_wide_desktop(self) -> None:
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
@@ -937,10 +989,10 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("    overflow-y: auto;", css)
         self.assertIn(".chat-card--story-first .play-tools {\n    align-content: start;", css)
         self.assertIn("    flex: 0 0 auto;", css)
-        self.assertIn("    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);", css)
+        self.assertIn("    grid-template-columns: minmax(0, 1fr);", css)
         self.assertIn(".chat-card--story-first .play-tools .action-composer {\n    padding: 6px;", css)
         self.assertIn(".chat-card--story-first .play-tools .action-composer .textarea {\n    min-height: 48px;", css)
-        self.assertIn(".chat-card--story-first .play-tools .quick-roll-panel {\n    padding: 7px 8px;", css)
+        self.assertIn(".chat-card--story-first .play-tools .quick-roll-panel {\n    padding: 5px 7px;", css)
         self.assertIn("@media (max-width: 900px) {\n  .grid--game { grid-template-columns: 1fr; }", css)
         self.assertIn(".grid:not(.grid--game) {\n    grid-template-columns: 1fr;", css)
         self.assertNotIn("  .grid {\n    grid-template-columns: 1fr;\n  }", css)
@@ -990,6 +1042,31 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".chat__msg--assistant {\n  align-self: stretch;\n  width: 100%;", css)
         self.assertIn(".chat__content {\n  line-height: 1.65;", css)
         self.assertNotIn("max-height: 26vh;", css)
+
+    def test_game_page_uses_remaining_viewport_without_sidebar_page_overflow(self) -> None:
+        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        self.assertIn("{% block body_class %}", base)
+        self.assertIn("{% block body_class %}page-game{% endblock %}", game)
+        self.assertIn(".page-game .app-main {", css)
+        self.assertIn("height: calc(100dvh - 71px);", css)
+        self.assertIn(".page-game .grid--game {", css)
+        self.assertIn("flex: 1 1 auto;", css)
+        self.assertIn(".page-game .sidebar-card {", css)
+        self.assertIn("height: 100%;", css)
+        self.assertIn("overflow: auto;", css)
+        self.assertIn("position: static;", css)
+
+    def test_latest_choices_form_a_compact_action_deck(self) -> None:
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        self.assertIn(".latest-choice-tray__list {", css)
+        self.assertIn("grid-auto-flow: column;", css)
+        self.assertIn("grid-auto-columns: minmax(210px, 1fr);", css)
+        self.assertIn(".chat-card--story-first .quick-roll-panel {", css)
+        self.assertIn("grid-template-columns: auto minmax(260px, 420px) minmax(150px, 1fr);", css)
 
     def test_game_layout_exposes_resizable_desktop_split(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -1119,7 +1196,7 @@ class TestUITemplates(unittest.TestCase):
         character_panel = Path("src/one_person_dnd/web/templates/partials/character_panel.html").read_text(encoding="utf-8")
         saves = Path("src/one_person_dnd/web/templates/saves.html").read_text(encoding="utf-8")
 
-        self.assertIn('textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow autocomplete="off"', game)
+        self.assertIn('textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow rows="1" autocomplete="off"', game)
         self.assertIn('input class="input" name="tags" data-turn-lockable autocomplete="off"', game)
         self.assertIn('textarea class="input textarea" name="state_block" data-turn-lockable autocomplete="off"', game)
         self.assertIn('select class="input input--compact" name="session_id" aria-label="切换章节" autocomplete="off"', game)
@@ -1196,20 +1273,15 @@ class TestUITemplates(unittest.TestCase):
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。", game)
+        self.assertIn("@media (max-width: 900px) {", css)
+        self.assertIn("  .grid--game { grid-template-columns: 1fr; }", css)
+        self.assertIn("  .page-game .app-main { display: block; height: auto; overflow: visible; }", css)
+        self.assertIn("@media (max-width: 1320px) {", css)
         self.assertIn(
-            "@media (max-width: 900px) {\n"
-            "  .grid--game { grid-template-columns: 1fr; }\n"
-            "  .game-layout-resizer { display: none; }\n"
-            "  .sidebar-card { max-height: none; overflow: visible; position: static; }\n"
-            "}\n\n"
-            "@media (max-width: 1320px) {\n"
-            "  .game-status-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }\n"
-            "  .status-tile { padding: 6px 8px; }\n"
-            "  .status-tile__label { display: block; }\n"
-            "  .status-tile__value { font-size: 0.9rem; line-height: 1.25; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n"
-            "  .review-callout { gap: 10px; margin-top: 8px; padding: 8px 10px; }\n",
+            "  .game-status-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }",
             css,
         )
+        self.assertIn("  .review-callout { gap: 10px; margin-top: 8px; padding: 8px 10px; }", css)
 
     def test_character_panel_shows_summary_before_advanced_json(self) -> None:
         panel = Path("src/one_person_dnd/web/templates/partials/character_panel.html").read_text(encoding="utf-8")
@@ -1502,7 +1574,9 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn('const userMsg = turnEl.querySelector(".chat__msg--user");', app_js)
         self.assertIn("const diceEvents = (turn && turn.dice_events) || [];", app_js)
-        self.assertIn("if (userMsg && diceEvents && diceEvents.length > 0) {", app_js)
+        self.assertIn("const hasCanonicalCheck = Boolean(", app_js)
+        self.assertIn("if (userMsg && diceEvents && diceEvents.length > 0 && !hasCanonicalCheck) {", app_js)
+        self.assertIn("adjudication-summary", app_js)
         self.assertIn("userMsg.appendChild(wrap);", app_js)
         self.assertLess(app_js.index("renderActionAssessment(userMsg"), app_js.index("const diceEvents ="))
         self.assertLess(
@@ -1655,6 +1729,9 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("management-grid", saves)
         self.assertIn("management-section", saves)
         self.assertIn("snapshot-card", saves)
+        self.assertIn("快照与故事分支 ·", saves)
+        self.assertIn("本章共", saves)
+        self.assertIn("本章还没有快照", saves)
         self.assertIn(".management-grid", css)
         self.assertIn(".snapshot-card", css)
 

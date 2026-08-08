@@ -14,7 +14,8 @@ def get_next_turn_index(conn: sqlite3.Connection, session_id: int) -> int:
 def list_turn_logs(conn: sqlite3.Connection, *, session_id: int, limit: int = 50) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT turn_index, player_text, dm_text, dice_events, created_at
+        SELECT turn_index, player_text, dm_text, dice_events,
+               attempt_id, adjudication_json, created_at
         FROM turn_logs
         WHERE session_id = ?
         ORDER BY turn_index DESC
@@ -48,21 +49,73 @@ def insert_turn_log(
     player_text: str,
     dm_text: str,
     dice_events_json: str,
+    attempt_id: str | None = None,
+    adjudication_json: str | None = None,
 ) -> None:
     conn.execute(
         """
-        INSERT INTO turn_logs(session_id, turn_index, player_text, dm_text, dice_events)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO turn_logs(
+          session_id, turn_index, player_text, dm_text, dice_events,
+          attempt_id, adjudication_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (session_id, turn_index, player_text, dm_text, dice_events_json),
+        (
+            session_id,
+            turn_index,
+            player_text,
+            dm_text,
+            dice_events_json,
+            attempt_id,
+            adjudication_json,
+        ),
     )
+
+
+def get_by_session_turn(
+    conn: sqlite3.Connection,
+    *,
+    session_id: int,
+    turn_index: int,
+) -> dict | None:
+    row = conn.execute(
+        """
+        SELECT id, session_id, turn_index, player_text, dm_text, dice_events,
+               attempt_id, adjudication_json, created_at
+        FROM turn_logs
+        WHERE session_id = ? AND turn_index = ?
+        LIMIT 1
+        """,
+        (session_id, turn_index),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_by_attempt(
+    conn: sqlite3.Connection,
+    *,
+    session_id: int,
+    attempt_id: str,
+) -> dict | None:
+    row = conn.execute(
+        """
+        SELECT id, session_id, turn_index, player_text, dm_text, dice_events,
+               attempt_id, adjudication_json, created_at
+        FROM turn_logs
+        WHERE session_id = ? AND attempt_id = ?
+        LIMIT 1
+        """,
+        (session_id, attempt_id),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def list_all_for_session(conn: sqlite3.Connection, *, session_id: int) -> list[dict]:
     """Full-column, deterministically ordered dump used for snapshot narrative capture."""
     rows = conn.execute(
         """
-        SELECT id, session_id, turn_index, player_text, dm_text, dice_events, created_at
+        SELECT id, session_id, turn_index, player_text, dm_text, dice_events,
+               attempt_id, adjudication_json, created_at
         FROM turn_logs
         WHERE session_id = ?
         ORDER BY turn_index ASC, id ASC
@@ -82,8 +135,11 @@ def bulk_insert(conn: sqlite3.Connection, *, session_id: int, rows: list[dict]) 
     for row in rows:
         conn.execute(
             """
-            INSERT INTO turn_logs(id, session_id, turn_index, player_text, dm_text, dice_events, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO turn_logs(
+              id, session_id, turn_index, player_text, dm_text, dice_events,
+              attempt_id, adjudication_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row["id"],
@@ -92,6 +148,8 @@ def bulk_insert(conn: sqlite3.Connection, *, session_id: int, rows: list[dict]) 
                 row["player_text"],
                 row["dm_text"],
                 row.get("dice_events"),
+                row.get("attempt_id"),
+                row.get("adjudication_json"),
                 row["created_at"],
             ),
         )

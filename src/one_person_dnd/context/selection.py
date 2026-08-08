@@ -27,7 +27,10 @@ def select_thread_blocks(conn: sqlite3.Connection, *, session_id: int, limit: in
     rows = plot_threads.list_open_threads(conn, session_id=session_id, limit=limit)
     blocks: list[str] = []
     for t in rows:
-        parts = [f"[P{t.get('priority', 0)}] {(t.get('title') or '').strip()}"]
+        # The DM protocol requires an existing thread id for updates.  Keep the
+        # id in the prompt-facing block so the model can update the canonical
+        # row instead of guessing an id or creating a duplicate thread.
+        parts = [f"[#{int(t['id'])} · P{t.get('priority', 0)}] {(t.get('title') or '').strip()}"]
         if (t.get("tags") or "").strip():
             parts.append(f"标签：{(t.get('tags') or '').strip()}")
         if (t.get("summary") or "").strip():

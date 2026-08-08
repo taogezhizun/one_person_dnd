@@ -5,6 +5,7 @@
         const ADVANCED_STORAGE_KEY = "one_person_dnd.advancedInputsOpen";
         const TURN_DRAFT_STORAGE_PREFIX = "one_person_dnd.turnDraft.";
         const STATE_BLOCK_DRAFT_STORAGE_PREFIX = "one_person_dnd.stateBlockDraft.";
+        const TURN_ATTEMPT_STORAGE_PREFIX = "one_person_dnd.turnAttempt.";
         const SCROLL_BTN_ID = "scroll-to-bottom-btn";
         // Single source of truth for these five label maps is
         // `one_person_dnd.web.labels` (Python); base.html serializes them as
@@ -438,6 +439,82 @@
           return sessionScopedDraftKey(form, STATE_BLOCK_DRAFT_STORAGE_PREFIX);
         }
 
+        function turnAttemptKey(form) {
+          return sessionScopedDraftKey(form, TURN_ATTEMPT_STORAGE_PREFIX);
+        }
+
+        function turnAttemptPayload(form) {
+          const value = function (selector) {
+            const field = form ? form.querySelector(selector) : null;
+            return field ? String(field.value || "").trim() : "";
+          };
+          return {
+            attempt_id: value("input[name=attempt_id]"),
+            player_text: value("textarea[name=player_text]"),
+            tags: value("input[name=tags]"),
+            state_block: value("textarea[name=state_block]"),
+          };
+        }
+
+        function createTurnAttemptId() {
+          if (window.crypto && typeof window.crypto.randomUUID === "function") {
+            return window.crypto.randomUUID();
+          }
+          return "turn-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+        }
+
+        function clearTurnAttempt(form) {
+          const input = form ? form.querySelector("input[name=attempt_id]") : null;
+          if (input) input.value = "";
+          try {
+            localStorage.removeItem(turnAttemptKey(form));
+          } catch (e) {}
+        }
+
+        function resetTurnAttempt(form) {
+          if (!form || form.dataset.turnInFlight === "1") return;
+          clearTurnAttempt(form);
+        }
+
+        function ensureTurnAttempt(form) {
+          const input = form ? form.querySelector("input[name=attempt_id]") : null;
+          if (!input) return "";
+          if (!input.value.trim()) input.value = createTurnAttemptId();
+          try {
+            localStorage.setItem(turnAttemptKey(form), JSON.stringify(turnAttemptPayload(form)));
+          } catch (e) {}
+          return input.value;
+        }
+
+        function initTurnAttemptPersistence() {
+          const form = document.getElementById("turn-form");
+          if (!form) return;
+          const attemptInput = form.querySelector("input[name=attempt_id]");
+          if (!attemptInput) return;
+
+          try {
+            const saved = JSON.parse(localStorage.getItem(turnAttemptKey(form)) || "null");
+            const current = turnAttemptPayload(form);
+            if (
+              saved &&
+              saved.attempt_id &&
+              saved.player_text === current.player_text &&
+              saved.tags === current.tags &&
+              saved.state_block === current.state_block
+            ) {
+              attemptInput.value = saved.attempt_id;
+            }
+          } catch (e) {
+            clearTurnAttempt(form);
+          }
+
+          form.querySelectorAll("textarea[name=player_text], input[name=tags], textarea[name=state_block]").forEach((field) => {
+            field.addEventListener("input", function () {
+              resetTurnAttempt(form);
+            });
+          });
+        }
+
         function hasStateBlockDraft(form) {
           try {
             return Boolean(localStorage.getItem(stateBlockDraftKey(form)));
@@ -795,6 +872,37 @@
           signals.forEach((s) => addPill(s, false, ACTION_SIGNAL_LABELS, ""));
           warnings.forEach((w) => addPill(w, true, ACTION_WARNING_LABELS, ""));
           wrap.appendChild(pills);
+
+          const adjudication = assessment.adjudication || null;
+          const check = adjudication && adjudication.check ? adjudication.check : null;
+          if (check) {
+            const summary = document.createElement("div");
+            summary.className = "adjudication-summary";
+            summary.setAttribute("data-adjudication-summary", "");
+            const headline = document.createElement("div");
+            const outcome = check.outcome === "success" ? "成功" : "失败";
+            const skill = check.skill ? ` / ${check.skill}` : "";
+            headline.textContent = `${outcome} · ${check.ability || "?"}${skill} · DC ${check.dc}`;
+            const formula = document.createElement("div");
+            formula.className = "muted";
+            const faces = Array.isArray(check.d20s) ? check.d20s.join(", ") : "";
+            const signed = (value) => {
+              const number = Number(value || 0);
+              return number >= 0 ? `+${number}` : String(number);
+            };
+            const mode = check.roll_mode === "advantage" ? " · 优势" : check.roll_mode === "disadvantage" ? " · 劣势" : "";
+            const natural = check.natural_face === "natural_20" ? " · 自然 20" : check.natural_face === "natural_1" ? " · 自然 1" : "";
+            formula.textContent = `d20 [${faces}] 取 ${check.selected_d20} ${signed(check.ability_modifier)} 属性 ${signed(check.proficiency_modifier)} 熟练 ${signed(check.circumstance_modifier)} 情境 = ${check.total}${mode}${natural}`;
+            summary.appendChild(headline);
+            summary.appendChild(formula);
+            if (check.intent) {
+              const intent = document.createElement("div");
+              intent.className = "muted";
+              intent.textContent = `意图：${check.intent}`;
+              summary.appendChild(intent);
+            }
+            wrap.appendChild(summary);
+          }
           targetEl.appendChild(wrap);
         }
 
@@ -1015,7 +1123,13 @@
           if (userMsg) renderActionAssessment(userMsg, turn && turn.action_assessment);
 
           const diceEvents = (turn && turn.dice_events) || [];
-          if (userMsg && diceEvents && diceEvents.length > 0) {
+          const hasCanonicalCheck = Boolean(
+            turn &&
+              turn.action_assessment &&
+              turn.action_assessment.adjudication &&
+              turn.action_assessment.adjudication.check
+          );
+          if (userMsg && diceEvents && diceEvents.length > 0 && !hasCanonicalCheck) {
             const wrap = document.createElement("div");
             wrap.className = "dice-events";
             const title = document.createElement("div");
@@ -1331,6 +1445,8 @@
               const playerText = ta && ta.value ? ta.value : "";
               if (!playerText.trim()) return;
 
+              ensureTurnAttempt(form);
+
               renderLatestChoices([]);
               const { turnEl, asstContent } = appendTurnSkeleton(chatHistory, playerText);
               if (shouldFollowScroll) scheduleAutoScroll();
@@ -1423,6 +1539,7 @@
                   resizeAutoGrowTextarea(ta);
                   clearSelectedChoiceActions();
                   clearTurnDraft(form);
+                  clearTurnAttempt(form);
                 }
                 const stateBlock = form.querySelector("textarea[name=state_block]");
                 if (stateBlock && turnSucceeded) {
@@ -1491,6 +1608,7 @@
           initTurnDraftPersistence();
           initAutoGrowTextareas();
           initStateBlockDraftPersistence();
+          initTurnAttemptPersistence();
           initUnsavedTurnWarning();
           initTurnSubmitState();
           initQuickRollSubmitState();
@@ -1557,6 +1675,7 @@
             evt.preventDefault();
             return;
           }
+          ensureTurnAttempt(elt);
           setTurnRequestUI(true);
           const chat = document.getElementById("chat-history");
           lastTurnShouldFollowScroll = isNearBottom(chat, 120);
@@ -1572,7 +1691,10 @@
             return;
           }
           if (!elt || elt.id !== "turn-form") return;
-          if (evt.detail && evt.detail.successful === false) {
+          const turnAccepted = evt.detail && evt.detail.xhr
+            ? evt.detail.xhr.getResponseHeader("X-Turn-Accepted")
+            : null;
+          if ((evt.detail && evt.detail.successful === false) || turnAccepted === "0") {
             setTurnRequestUI(false);
             return;
           }
@@ -1587,6 +1709,7 @@
           if (stateBlock) stateBlock.value = "";
           clearTurnDraft(elt);
           clearStateBlockDraft(elt);
+          clearTurnAttempt(elt);
           hideTurnContextFeedback();
           setTurnRequestUI(false);
           updateTurnSubmitState(elt);

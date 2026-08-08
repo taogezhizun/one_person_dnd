@@ -11,7 +11,18 @@
     <div class="page-actions"><a class="btn btn--ghost" href="/game">回到游玩</a></div>
   </div>
 
-  <section class="card management-section model-profiles">
+  {% if created %}
+    <section class="notice notice--ok notice--spaced" role="status" aria-labelledby="model-created-title">
+      <div id="model-created-title" class="notice__title">模型配置已保存，建议先测试连接</div>
+      <div class="muted">保存成功不代表模型服务已经连通。确认测试成功后，再创建新冒险；模型配置仍可在下方继续管理。</div>
+      <div class="row row--compact-spaced">
+        <a class="btn" href="{% if active_id %}#model-profile-{{ active_id }}{% else %}#model-management{% endif %}">去测试连接</a>
+        <a class="btn btn--ghost" href="/new">创建新冒险</a>
+      </div>
+    </section>
+  {% endif %}
+
+  <section id="model-management" class="card management-section model-profiles">
     <div class="management-section__head">
       <div>
         <div class="card__title">已有模型</div>
@@ -23,7 +34,7 @@
     {% if profiles %}
       <div class="model-profile-library">
         {% for profile in profiles %}
-          <article class="model-profile-card {% if active_id and profile.id == active_id %}model-profile-card--active{% endif %}">
+          <article id="model-profile-{{ profile.id }}" class="model-profile-card {% if active_id and profile.id == active_id %}model-profile-card--active{% endif %}">
             <div class="model-profile-card__head">
               <div>
                 <div class="model-profile-card__title">{{ profile.name }}</div>

@@ -24,6 +24,8 @@ class StateKeeperAgent:
         recalled_world: list[dict],
         dice_events: list[DiceEvent],
         recalled_context: list[dict] | None = None,
+        attempt_id: str | None = None,
+        adjudication_json: str | None = None,
     ) -> TurnResult:
         return persist_turn(
             conn,
@@ -34,6 +36,8 @@ class StateKeeperAgent:
             recalled_world=recalled_world,
             recalled_context=recalled_context,
             dice_events=dice_events,
+            attempt_id=attempt_id,
+            adjudication_json=adjudication_json,
         )
 
     def persist_raw(
@@ -44,6 +48,8 @@ class StateKeeperAgent:
         player_text: str,
         dm_raw: str,
         dice_events: list[DiceEvent],
+        attempt_id: str | None = None,
+        adjudication_json: str | None = None,
     ) -> tuple[int, list[DiceEvent]]:
         """Phase 1: durably record the raw turn the player already saw. See
         engine.orchestrator.persist_raw_turn for the persistence contract."""
@@ -53,6 +59,8 @@ class StateKeeperAgent:
             player_text=player_text,
             dm_raw=dm_raw,
             dice_events=dice_events,
+            attempt_id=attempt_id,
+            adjudication_json=adjudication_json,
         )
 
     def persist_enrichment(

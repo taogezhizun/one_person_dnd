@@ -108,7 +108,7 @@
               </div>
 
               <details class="advanced snapshot-manager">
-                <summary>快照与故事分支</summary>
+                <summary>快照与故事分支 · {{ session.snapshot_count or 0 }} 个</summary>
                 <div class="safety-note">恢复快照会把整个会话（场景、角色卡、回合记录、故事记忆、剧情线）都倒回到快照当时的状态；系统会先自动保存当前状态为一份安全快照，误操作后可以再次恢复它撤回。</div>
                 <form class="form form--compact" method="post" action="/saves/session/snapshot">
                   <input type="hidden" name="session_id" value="{{ session.id }}" />
@@ -121,6 +121,7 @@
 
                 {% set snapshots = snapshots_map.get(session.id, []) %}
                 {% if snapshots %}
+                  <div class="muted muted--compact-spaced">本章共 {{ session.snapshot_count or snapshots|length }} 个快照；下方显示最近 {{ snapshots|length }} 个。</div>
                   <div class="snapshot-stack">
                     {% for snapshot in snapshots %}
                       <article class="snapshot-card">
@@ -150,7 +151,10 @@
                     {% endfor %}
                   </div>
                 {% else %}
-                  <div class="muted muted--compact-spaced">还没有快照。</div>
+                  <div class="empty-state">
+                    <strong>本章还没有快照。</strong>
+                    <div class="muted">为当前状态命名并保存后，就能从这里恢复或创建故事分支。</div>
+                  </div>
                 {% endif %}
               </details>
 

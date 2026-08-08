@@ -25,6 +25,8 @@ DEFAULT_FORM_VALUES = {
     "extra_constraints": "",
 }
 
+CANONICAL_ABILITIES = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
+
 
 def _new_context(**overrides: object) -> dict[str, object]:
     context: dict[str, object] = {
@@ -53,6 +55,83 @@ def _decode_json_object(raw: str) -> dict:
 def _bounded_text(value: object, fallback: str, *, max_length: int = 120) -> str:
     text = str(value or "").strip()
     return (text or fallback)[:max_length]
+
+
+def _bounded_int(value: object, fallback: int, *, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = fallback
+    return max(minimum, min(maximum, parsed))
+
+
+def _normalize_generated_character_sheet(sheet: dict) -> dict:
+    party = sheet.get("party")
+    if not isinstance(party, list) or not party:
+        raise ValueError("生成结果中的角色卡必须包含至少一名 party 角色")
+
+    normalized_party: list[dict] = []
+    for member in party:
+        if not isinstance(member, dict):
+            raise ValueError("生成结果中的 party 角色格式不正确")
+
+        normalized = dict(member)
+        raw_abilities = member.get("abilities")
+        if not isinstance(raw_abilities, dict):
+            raw_abilities = {}
+        normalized["level"] = _bounded_int(member.get("level"), 1, minimum=1, maximum=20)
+        normalized["abilities"] = {
+            ability: _bounded_int(raw_abilities.get(ability), 10, minimum=1, maximum=30)
+            for ability in CANONICAL_ABILITIES
+        }
+
+        raw_skills = member.get("skill_proficiencies")
+        if isinstance(raw_skills, str):
+            skill_items = raw_skills.replace("，", ",").split(",")
+        elif isinstance(raw_skills, list):
+            skill_items = raw_skills
+        else:
+            skill_items = []
+        normalized["skill_proficiencies"] = list(
+            dict.fromkeys(str(item).strip() for item in skill_items if str(item).strip())
+        )
+        normalized_party.append(normalized)
+
+    normalized_sheet = dict(sheet)
+    normalized_sheet["party"] = normalized_party
+    return normalized_sheet
+
+
+def _encode_source_form(form_values: dict[str, object], proposal: dict[str, str]) -> str:
+    return json.dumps(
+        {"form_values": form_values, "proposal": proposal},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _decode_source_form(raw: str) -> tuple[dict[str, object], dict[str, str]]:
+    source = _decode_json_object(raw)
+    raw_values = source.get("form_values")
+    raw_proposal = source.get("proposal")
+    if not isinstance(raw_values, dict) or not isinstance(raw_proposal, dict):
+        raise ValueError("返回修改所需的原始表单格式不正确")
+
+    form_values: dict[str, object] = dict(DEFAULT_FORM_VALUES)
+    for key in ("adventure_brief", "genre", "tone", "tech_level", "themes", "extra_constraints"):
+        if key in raw_values:
+            form_values[key] = str(raw_values.get(key) or "").strip()
+    form_values["character_count"] = _bounded_int(
+        raw_values.get("character_count"),
+        int(DEFAULT_FORM_VALUES["character_count"]),
+        minimum=1,
+        maximum=4,
+    )
+    proposal = {
+        "adventure_name": str(raw_proposal.get("adventure_name") or "").strip()[:120],
+        "chapter_title": str(raw_proposal.get("chapter_title") or "").strip()[:120],
+    }
+    return form_values, proposal
 
 
 @router.get("/new", response_class=HTMLResponse)
@@ -198,11 +277,15 @@ def new_generate(
         '    {"type":"Rule|Location|NPC|Organization","title":"...","tags":"逗号分隔","content":"多行文本"}\n'
         "  ],\n"
         '  "character_sheet":{"party":[\n'
-        '    {"name":"...","race":"...","class":"...","background":"...","goal":"...","hp":10,"gold":5,"inventory":["..."]}\n'
+        '    {"name":"...","race":"...","class":"...","level":1,"background":"...","goal":"...",'
+        '"hp":10,"gold":5,"inventory":["..."],'
+        '"abilities":{"STR":10,"DEX":10,"CON":10,"INT":10,"WIS":10,"CHA":10},'
+        '"skill_proficiencies":["Perception","Stealth"]}\n'
         '  ],"notes":"系统建议或开场钩子"}\n'
         "}\n"
         f"生成 {char_n} 名角色。世界设定建议 6-10 条，覆盖硬规则、关键地点、关键人物与至少一个势力。"
-        "内容使用中文，具体可玩，不替玩家决定行动。"
+        "level 必须是 1-20 的整数；abilities 必须使用 STR、DEX、CON、INT、WIS、CHA 六个 canonical key；"
+        "skill_proficiencies 使用英文技能名数组。内容使用中文，具体可玩，不替玩家决定行动。"
     )
     user = (
         f"冒险构想：{form_values['adventure_brief'] or '请根据以下偏好补全'}\n"
@@ -222,6 +305,8 @@ def new_generate(
         sheet = obj.get("character_sheet") or {}
         if not isinstance(entries, list) or not isinstance(sheet, dict):
             raise ValueError("生成结果中的世界设定或角色卡格式不正确")
+        sheet = _normalize_generated_character_sheet(sheet)
+        obj["character_sheet"] = sheet
         obj["adventure_name"] = _bounded_text(
             obj.get("adventure_name"), proposal["adventure_name"] or "未命名冒险"
         )
@@ -244,7 +329,41 @@ def new_generate(
     return templates.TemplateResponse(
         request=request,
         name="new_preview.html",
-        context={"preview_obj": obj, "preview_json": preview_json},
+        context={
+            "preview_obj": obj,
+            "preview_json": preview_json,
+            "source_form_json": _encode_source_form(form_values, proposal),
+        },
+    )
+
+
+@router.post("/new/return", response_class=HTMLResponse)
+def new_return(
+    request: Request,
+    source_form_json: str = Form(...),
+    adventure_name: str = Form(""),
+    chapter_title: str = Form(""),
+) -> HTMLResponse:
+    try:
+        form_values, proposal = _decode_source_form(source_form_json)
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="new.html",
+            context=_new_context(error=f"无法恢复刚才的创建草稿：{exc}"),
+        )
+
+    # Names are editable on the preview page; returning should preserve those
+    # latest edits along with every field captured before generation.
+    proposal["adventure_name"] = str(adventure_name or "").strip()[:120]
+    proposal["chapter_title"] = str(chapter_title or "").strip()[:120]
+    return templates.TemplateResponse(
+        request=request,
+        name="new.html",
+        context=_new_context(
+            form_values=form_values,
+            proposal=proposal if any(proposal.values()) else None,
+        ),
     )
 
 
@@ -264,6 +383,13 @@ def new_apply(
     sheet = obj.get("character_sheet") or {}
     if not isinstance(entries, list) or not isinstance(sheet, dict):
         raise HTTPException(status_code=400, detail="冒险预览缺少有效的世界设定或角色卡")
+    try:
+        # The preview is editable client input. Re-establish the canonical
+        # character contract at the final persistence boundary instead of
+        # trusting that it still matches the earlier generated preview.
+        sheet = _normalize_generated_character_sheet(sheet)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"无法采用这份角色卡：{exc}") from exc
 
     final_adventure_name = _bounded_text(adventure_name, _bounded_text(obj.get("adventure_name"), "未命名冒险"))
     final_chapter_title = _bounded_text(chapter_title, _bounded_text(obj.get("chapter_title"), "第一章·故事开场"))

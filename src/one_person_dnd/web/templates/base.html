@@ -4,18 +4,22 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#080b10" />
+    <meta
+      name="htmx-config"
+      content='{"selfRequestsOnly":true,"allowScriptTags":false,"allowEval":false}'
+    />
     <title>{% block title %}one_person_dnd{% endblock %}</title>
     <script src="/static/vendor/htmx.min.js"></script>
     <script src="/static/vendor/marked.min.js"></script>
     <script src="/static/vendor/purify.min.js"></script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23121a26'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='34' font-family='Arial' fill='%237aa2f7'%3Ed%3C/text%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="/static/style.css?v=20260715-desktop-ux" />
+    <link rel="stylesheet" href="/static/style.css?v=20260728-turn-deck" />
   </head>
-  <body>
+  <body class="{% block body_class %}{% endblock %}">
     <a class="skip-link" href="#main-content" data-skip-link>跳到主要内容</a>
     <header class="header">
       <div class="container header__inner">
-        <a class="brand" href="/">one_person_dnd</a>
+        <a class="brand" href="/" translate="no">one_person_dnd</a>
         {% set current_path = request.url.path if request is defined else "" %}
         <nav class="nav" aria-label="主要导航">
           <a href="/game" {% if current_path == "/game" %}aria-current="page"{% endif %}>游玩</a>

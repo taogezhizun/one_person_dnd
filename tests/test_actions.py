@@ -1,10 +1,18 @@
 import unittest
 
 from one_person_dnd.agents.action_judge import ActionJudgeAgent
-from one_person_dnd.domain.actions import PlayerAction
+from one_person_dnd.domain.actions import PlayerAction, classify_action_text
 
 
 class TestActionJudgeAgent(unittest.TestCase):
+    def test_player_action_attempt_id_is_additive_and_optional(self) -> None:
+        legacy = PlayerAction(campaign_id=1, session_id=2, text="我前进")
+        identified = PlayerAction(campaign_id=1, session_id=2, text="我前进", attempt_id="attempt-1")
+
+        self.assertEqual(legacy.attempt_id, "")
+        self.assertEqual(identified.attempt_id, "attempt-1")
+        self.assertEqual(classify_action_text("我试图说服守卫"), "social")
+
     def test_detects_explicit_dice(self) -> None:
         action = PlayerAction(
             campaign_id=1,

@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from one_person_dnd.config import AppState, save_app_state
 from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import (
+    adjudication_records,
     campaigns,
     character_sheets,
     manual_change_logs,
@@ -46,17 +47,77 @@ def _capture_narrative_json(conn, *, session_id: int) -> str:
     )
 
 
+def _normalize_restored_adjudication_json(raw: object) -> tuple[str | None, str | None]:
+    """Return snapshot JSON plus its canonical fingerprint when replay-safe.
+
+    Early v10 snapshots used ``fingerprint`` inside the serialized record.
+    The current domain object requires ``request_fingerprint``. Normalize that
+    compatibility key before restoring either turn history or the ledger so a
+    valid old record remains readable and replayable after a rewind.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None, None
+    try:
+        record = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return raw, None
+    if not isinstance(record, dict):
+        return raw, None
+
+    fingerprint = record.get("request_fingerprint")
+    if not isinstance(fingerprint, str) or not fingerprint.strip():
+        legacy_fingerprint = record.get("fingerprint")
+        if not isinstance(legacy_fingerprint, str) or not legacy_fingerprint.strip():
+            return raw, None
+        fingerprint = legacy_fingerprint.strip()
+        record["request_fingerprint"] = fingerprint
+        raw = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return raw, fingerprint.strip()
+
+
 def _restore_narrative(conn, *, session_id: int, narrative_json: str) -> None:
     """
     Replace the session's turn_logs/story_journal_entries/plot_threads/
     session_summaries with a snapshot's captured narrative, and drop pending
     state_change_requests (they may reference turn/thread state that no
-    longer exists after the rewind). Applied/rejected requests are left
-    intact as an audit trail. Caller owns the transaction (commit/rollback).
+    longer exists after the rewind). The adjudication ledger is rebuilt only
+    from restored turn logs whose adjudication JSON carries its original
+    fingerprint; old records without one are skipped rather than assigned a
+    fabricated replay identity. Applied/rejected requests are left intact as
+    an audit trail. Caller owns the transaction (commit/rollback).
     """
     data = json.loads(narrative_json)
+    adjudication_records.delete_all_for_session(conn, session_id=session_id)
     turn_logs.delete_all_for_session(conn, session_id=session_id)
-    turn_logs.bulk_insert(conn, session_id=session_id, rows=data.get("turn_logs", []))
+    restored_turn_rows: list[dict] = []
+    for original_turn in data.get("turn_logs", []):
+        turn = dict(original_turn)
+        normalized_json, _fingerprint = _normalize_restored_adjudication_json(
+            turn.get("adjudication_json")
+        )
+        if normalized_json is not None:
+            turn["adjudication_json"] = normalized_json
+        restored_turn_rows.append(turn)
+    turn_logs.bulk_insert(conn, session_id=session_id, rows=restored_turn_rows)
+    for turn in turn_logs.list_all_for_session(conn, session_id=session_id):
+        attempt_id = turn.get("attempt_id")
+        record_json, fingerprint = _normalize_restored_adjudication_json(
+            turn.get("adjudication_json")
+        )
+        if not isinstance(attempt_id, str) or not attempt_id.strip():
+            continue
+        if not isinstance(record_json, str) or not record_json.strip():
+            continue
+        if not isinstance(fingerprint, str) or not fingerprint.strip():
+            continue
+        adjudication_records.create(
+            conn,
+            session_id=session_id,
+            attempt_id=attempt_id,
+            fingerprint=fingerprint.strip(),
+            record_json=record_json,
+            turn_index=int(turn["turn_index"]),
+        )
     story_journal.delete_all_for_session(conn, session_id=session_id)
     story_journal.bulk_insert(conn, session_id=session_id, rows=data.get("story_journal_entries", []))
     plot_threads.delete_all_for_session(conn, session_id=session_id)
@@ -153,7 +214,7 @@ def saves(request: Request) -> HTMLResponse:
         snapshots_map: dict[int, list[dict]] = {}
         for s in sessions_list:
             sid = int(s["id"])
-            snapshots_map[sid] = session_snapshots.list_snapshots(conn, session_id=sid, limit=5)
+            snapshots_map[sid] = session_snapshots.list_snapshots(conn, session_id=sid, limit=50)
     finally:
         conn.close()
 

@@ -4,8 +4,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from one_person_dnd.adjudication import AdjudicationRecord
 from one_person_dnd.db.conn import get_connection
 from one_person_dnd.db.repos import (
+    adjudication_records,
     campaigns,
     character_sheets,
     plot_threads,
@@ -99,6 +101,58 @@ class TestSaveSnapshotRoutes(unittest.TestCase):
                 self.assertIn("过去的角色", character_sheets.get_character_sheet(conn, session_id=session_id))
             finally:
                 conn.close()
+        finally:
+            tmp.cleanup()
+
+    def test_saves_page_lists_recent_50_snapshots_with_total_count(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        app_dir = root / ".one_person_dnd"
+        app_dir.mkdir()
+        paths = AppPaths(root, app_dir, root / "api_config.ini", app_dir / "one_person_dnd.sqlite3")
+        init_db(paths.db_path)
+
+        conn = get_connection(paths.db_path)
+        try:
+            campaign_id = campaigns.create_campaign(conn, "雾港")
+            session_id = sessions.create_session(
+                conn,
+                campaign_id=campaign_id,
+                title="第一章",
+                current_scene="码头",
+            )
+            for index in range(55):
+                session_snapshots.create_snapshot(
+                    conn,
+                    session_id=session_id,
+                    snapshot_name=f"快照 {index:02d}",
+                    turn_index=index,
+                    current_scene="码头",
+                    session_state="",
+                    pinned_world_notes="",
+                    character_sheet_json="{}",
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.saves.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.saves.get_current_campaign_session",
+                    return_value=(campaign_id, session_id),
+                ),
+                patch("one_person_dnd.web.routes.saves.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                context = saves.saves(request=object())
+
+            snapshots = context["snapshots_map"][session_id]
+            self.assertEqual(len(snapshots), 50)
+            self.assertEqual(snapshots[0]["snapshot_name"], "快照 54")
+            self.assertEqual(snapshots[-1]["snapshot_name"], "快照 05")
+            self.assertEqual(context["sessions"][0]["snapshot_count"], 55)
         finally:
             tmp.cleanup()
 
@@ -331,6 +385,210 @@ class TestSaveSnapshotFullNarrativeRewind(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_restore_narrative_rebuilds_only_snapshot_adjudication_ledger(self) -> None:
+        tmp, paths = _make_env()
+        try:
+            conn = get_connection(paths.db_path)
+            try:
+                campaign_id = campaigns.create_campaign(conn, "裁决回退")
+                session_id = sessions.create_session(
+                    conn, campaign_id=campaign_id, title="第一章", current_scene="机关门"
+                )
+
+                for turn_index in (0, 1):
+                    attempt_id = f"snapshot-attempt-{turn_index}"
+                    fingerprint = f"snapshot-fingerprint-{turn_index}"
+                    record_json = json.dumps(
+                        {
+                            "request_fingerprint": fingerprint,
+                            "degree": "success",
+                            "roll": 12 + turn_index,
+                        },
+                        ensure_ascii=False,
+                    )
+                    turn_logs.insert_turn_log(
+                        conn,
+                        session_id=session_id,
+                        turn_index=turn_index,
+                        player_text=f"快照行动{turn_index}",
+                        dm_text=f"快照叙事{turn_index}",
+                        dice_events_json="[]",
+                        attempt_id=attempt_id,
+                        adjudication_json=record_json,
+                    )
+                    adjudication_records.create(
+                        conn,
+                        session_id=session_id,
+                        attempt_id=attempt_id,
+                        fingerprint=fingerprint,
+                        record_json=record_json,
+                        turn_index=turn_index,
+                    )
+
+                compatibility_json = json.dumps(
+                    {
+                        "attempt_id": "compatibility-fingerprint-key",
+                        "policy_version": "srd_5_2_1_solo_checks_v1",
+                        "fingerprint": "compatibility-fingerprint",
+                        "status": "no_check",
+                        "action_type": "other",
+                        "check": None,
+                        "manual_rolls": [],
+                        "signals": [],
+                        "warnings": [],
+                    }
+                )
+                turn_logs.insert_turn_log(
+                    conn,
+                    session_id=session_id,
+                    turn_index=2,
+                    player_text="兼容格式行动",
+                    dm_text="兼容格式叙事",
+                    dice_events_json="[]",
+                    attempt_id="compatibility-fingerprint-key",
+                    adjudication_json=compatibility_json,
+                )
+                adjudication_records.create(
+                    conn,
+                    session_id=session_id,
+                    attempt_id="compatibility-fingerprint-key",
+                    fingerprint="compatibility-fingerprint",
+                    record_json=compatibility_json,
+                    turn_index=2,
+                )
+
+                # A v10 turn can still carry an older adjudication JSON shape.
+                # Its ledger row exists now, but cannot be safely reconstructed
+                # after restore because the captured JSON lacks a fingerprint.
+                legacy_json = json.dumps({"degree": "success", "roll": 18})
+                turn_logs.insert_turn_log(
+                    conn,
+                    session_id=session_id,
+                    turn_index=3,
+                    player_text="旧格式行动",
+                    dm_text="旧格式叙事",
+                    dice_events_json="[]",
+                    attempt_id="legacy-without-fingerprint",
+                    adjudication_json=legacy_json,
+                )
+                adjudication_records.create(
+                    conn,
+                    session_id=session_id,
+                    attempt_id="legacy-without-fingerprint",
+                    fingerprint="external-only-fingerprint",
+                    record_json=legacy_json,
+                    turn_index=3,
+                )
+                snapshot_narrative = saves._capture_narrative_json(
+                    conn, session_id=session_id
+                )
+
+                future_json = json.dumps(
+                    {"request_fingerprint": "future-fingerprint", "degree": "failure"}
+                )
+                turn_logs.insert_turn_log(
+                    conn,
+                    session_id=session_id,
+                    turn_index=4,
+                    player_text="快照后的行动",
+                    dm_text="快照后的叙事",
+                    dice_events_json="[]",
+                    attempt_id="future-attempt",
+                    adjudication_json=future_json,
+                )
+                adjudication_records.create(
+                    conn,
+                    session_id=session_id,
+                    attempt_id="future-attempt",
+                    fingerprint="future-fingerprint",
+                    record_json=future_json,
+                    turn_index=3,
+                )
+                adjudication_records.create(
+                    conn,
+                    session_id=session_id,
+                    attempt_id="unfinished-attempt",
+                    fingerprint="unfinished-fingerprint",
+                    record_json=json.dumps(
+                        {"request_fingerprint": "unfinished-fingerprint"}
+                    ),
+                )
+
+                saves._restore_narrative(
+                    conn,
+                    session_id=session_id,
+                    narrative_json=snapshot_narrative,
+                )
+                conn.commit()
+
+                restored_turns = turn_logs.list_all_for_session(
+                    conn, session_id=session_id
+                )
+                self.assertEqual(
+                    [row["turn_index"] for row in restored_turns],
+                    [0, 1, 2, 3],
+                )
+                ledger = conn.execute(
+                    """
+                    SELECT attempt_id, fingerprint, record_json, turn_index, completed_at
+                    FROM adjudication_records
+                    WHERE session_id = ?
+                    ORDER BY turn_index ASC
+                    """,
+                    (session_id,),
+                ).fetchall()
+                self.assertEqual(
+                    [row["attempt_id"] for row in ledger],
+                    [
+                        "snapshot-attempt-0",
+                        "snapshot-attempt-1",
+                        "compatibility-fingerprint-key",
+                    ],
+                )
+                self.assertEqual(
+                    [row["fingerprint"] for row in ledger],
+                    [
+                        "snapshot-fingerprint-0",
+                        "snapshot-fingerprint-1",
+                        "compatibility-fingerprint",
+                    ],
+                )
+                self.assertEqual([row["turn_index"] for row in ledger], [0, 1, 2])
+                self.assertTrue(all(row["completed_at"] for row in ledger))
+                self.assertTrue(all(row["record_json"] for row in ledger))
+                compatibility_record = AdjudicationRecord.from_json(ledger[2]["record_json"])
+                self.assertEqual(
+                    compatibility_record.request_fingerprint,
+                    "compatibility-fingerprint",
+                )
+                restored_compatibility_turn = next(
+                    row
+                    for row in restored_turns
+                    if row["attempt_id"] == "compatibility-fingerprint-key"
+                )
+                self.assertEqual(
+                    json.loads(restored_compatibility_turn["adjudication_json"])[
+                        "request_fingerprint"
+                    ],
+                    "compatibility-fingerprint",
+                )
+                for removed_attempt in (
+                    "legacy-without-fingerprint",
+                    "future-attempt",
+                    "unfinished-attempt",
+                ):
+                    self.assertIsNone(
+                        adjudication_records.get_by_attempt(
+                            conn,
+                            session_id=session_id,
+                            attempt_id=removed_attempt,
+                        )
+                    )
+            finally:
+                conn.close()
+        finally:
+            tmp.cleanup()
+
     def test_restore_with_null_narrative_json_falls_back_to_state_only(self) -> None:
         """Snapshots taken before this feature have narrative_json IS NULL; restoring
         one must not delete turn_logs/story/threads/summaries, only scene/character
@@ -401,4 +659,3 @@ class TestSaveSnapshotFullNarrativeRewind(unittest.TestCase):
                 conn.close()
         finally:
             tmp.cleanup()
-

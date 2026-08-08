@@ -1,13 +1,23 @@
 import sqlite3
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
+from one_person_dnd.adjudication import ActionAdjudicator, AttemptConflict, SequenceRoller
 from one_person_dnd.agents.pipeline import TurnPipeline
 from one_person_dnd.agents.state_keeper import StateKeeperAgent
 from one_person_dnd.config import MemoryConfig
 from one_person_dnd.db.conn import get_connection
-from one_person_dnd.db.repos import campaigns, sessions, state_change_requests, world_bible
+from one_person_dnd.db.repos import (
+    adjudication_records,
+    campaigns,
+    character_sheets,
+    sessions,
+    state_change_requests,
+    turn_logs,
+    world_bible,
+)
 from one_person_dnd.db.schema import init_db
 from one_person_dnd.domain.actions import PlayerAction
 from one_person_dnd.llm import ChatMessage
@@ -137,6 +147,24 @@ class RepairableBadChoicesDMClient:
         )
 
 
+class FailingDMClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, messages: list[ChatMessage]) -> str:
+        self.calls += 1
+        raise RuntimeError("simulated provider failure")
+
+
+class UnexpectedDMClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, messages: list[ChatMessage]) -> str:
+        self.calls += 1
+        raise AssertionError("completed attempts must not call the LLM again")
+
+
 class TestTurnPipeline(unittest.TestCase):
     def _conn(self) -> tuple[tempfile.TemporaryDirectory, sqlite3.Connection, int, int]:
         tmp = tempfile.TemporaryDirectory()
@@ -234,6 +262,164 @@ class TestTurnPipeline(unittest.TestCase):
             self.assertTrue(any(item["kind"] == "action_assessment" for item in recalled_context))
             self.assertEqual(len(dice_events), 1)
             self.assertEqual(assessment.action_type, "exploration")
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_adjudication_is_committed_before_llm_and_linked_with_turn(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+        try:
+            character_sheets.upsert_character_sheet(
+                conn,
+                session_id=session_id,
+                json_text='{"party":[{"level":1,"abilities":{"DEX":14},"skill_proficiencies":[]}]}',
+            )
+            conn.commit()
+            action = PlayerAction(
+                campaign_id=campaign_id,
+                session_id=session_id,
+                text="我尝试开锁",
+                attempt_id="committed-before-llm",
+            )
+
+            class InspectingDMClient(FakeDMClient):
+                def __init__(self, db_path: Path) -> None:
+                    self.db_path = db_path
+                    self.saw_record = False
+                    self.saw_turn = False
+
+                def chat(self, messages: list[ChatMessage]) -> str:
+                    probe = get_connection(self.db_path)
+                    try:
+                        self.saw_record = adjudication_records.get_by_attempt(
+                            probe,
+                            session_id=session_id,
+                            attempt_id=action.attempt_id,
+                        ) is not None
+                        self.saw_turn = turn_logs.get_by_attempt(
+                            probe,
+                            session_id=session_id,
+                            attempt_id=action.attempt_id,
+                        ) is not None
+                    finally:
+                        probe.close()
+                    return super().chat(messages)
+
+            client = InspectingDMClient(Path(tmp.name) / "test.sqlite3")
+            result = TurnPipeline(
+                dm_client=client,
+                adjudicator=ActionAdjudicator(conn=conn, roller=SequenceRoller([13])),
+            ).run_non_streaming(conn, action=action, memory_cfg=MemoryConfig())
+
+            self.assertTrue(client.saw_record)
+            self.assertFalse(client.saw_turn)
+            linked = adjudication_records.get_by_attempt(
+                conn,
+                session_id=session_id,
+                attempt_id=action.attempt_id,
+            )
+            self.assertEqual(linked["turn_index"], result.turn_index)
+            stored_turn = turn_logs.get_by_attempt(
+                conn,
+                session_id=session_id,
+                attempt_id=action.attempt_id,
+            )
+            self.assertIsNotNone(stored_turn)
+            self.assertIn('"outcome":"success"', stored_turn["adjudication_json"])
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_provider_failure_retry_reuses_frozen_roll(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+        try:
+            character_sheets.upsert_character_sheet(
+                conn,
+                session_id=session_id,
+                json_text='{"party":[{"level":1,"abilities":{"DEX":10}}]}',
+            )
+            conn.commit()
+            action = PlayerAction(
+                campaign_id=campaign_id,
+                session_id=session_id,
+                text="我尝试开锁",
+                attempt_id="retry-after-provider-error",
+            )
+            first_roller = SequenceRoller([7])
+            with self.assertRaisesRegex(RuntimeError, "provider failure"):
+                TurnPipeline(
+                    dm_client=FailingDMClient(),
+                    adjudicator=ActionAdjudicator(conn=conn, roller=first_roller),
+                ).run_non_streaming(conn, action=action, memory_cfg=MemoryConfig())
+
+            second_roller = SequenceRoller([20])
+            result = TurnPipeline(
+                dm_client=FakeDMClient(),
+                adjudicator=ActionAdjudicator(conn=conn, roller=second_roller),
+            ).run_non_streaming(conn, action=action, memory_cfg=MemoryConfig())
+
+            self.assertEqual(first_roller.calls, 1)
+            self.assertEqual(second_roller.calls, 0)
+            self.assertEqual(result.action_assessment.adjudication.check.selected_d20, 7)
+            self.assertEqual(len(turn_logs.list_all_for_session(conn, session_id=session_id)), 1)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_completed_attempt_replays_without_llm_or_duplicate_turn(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+        try:
+            action = PlayerAction(
+                campaign_id=campaign_id,
+                session_id=session_id,
+                text="我尝试说服守卫",
+                attempt_id="already-completed",
+            )
+            first = TurnPipeline(
+                dm_client=FakeDMClient(),
+                adjudicator=ActionAdjudicator(conn=conn, roller=SequenceRoller([16])),
+            ).run_non_streaming(conn, action=action, memory_cfg=MemoryConfig())
+
+            unexpected = UnexpectedDMClient()
+            replay = TurnPipeline(
+                dm_client=unexpected,
+                adjudicator=ActionAdjudicator(conn=conn, roller=SequenceRoller([1])),
+            ).run_non_streaming(conn, action=action, memory_cfg=MemoryConfig())
+
+            self.assertEqual(unexpected.calls, 0)
+            self.assertTrue(replay.replayed)
+            self.assertEqual(replay.turn_index, first.turn_index)
+            self.assertEqual(replay.dm_raw_text, first.dm_raw_text)
+            self.assertEqual(len(turn_logs.list_all_for_session(conn, session_id=session_id)), 1)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_attempt_id_reuse_with_changed_action_fails_before_llm(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+        try:
+            original = PlayerAction(
+                campaign_id=campaign_id,
+                session_id=session_id,
+                text="我尝试开锁",
+                attempt_id="conflicting-attempt",
+            )
+            first_pipeline = TurnPipeline(
+                dm_client=FailingDMClient(),
+                adjudicator=ActionAdjudicator(conn=conn, roller=SequenceRoller([10])),
+            )
+            with self.assertRaises(RuntimeError):
+                first_pipeline.run_non_streaming(conn, action=original, memory_cfg=MemoryConfig())
+
+            changed = replace(original, text="我尝试说服守卫")
+            unexpected = UnexpectedDMClient()
+            with self.assertRaises(AttemptConflict):
+                TurnPipeline(dm_client=unexpected).run_non_streaming(
+                    conn,
+                    action=changed,
+                    memory_cfg=MemoryConfig(),
+                )
+            self.assertEqual(unexpected.calls, 0)
         finally:
             conn.close()
             tmp.cleanup()
@@ -424,6 +610,29 @@ class TestTurnPipelineRawPersistenceRobustness(unittest.TestCase):
             self.assertEqual(result.critic_warnings, [])
             self.assertEqual(result.response_warnings, [])
             self.assertEqual(result.dm.narration, "你推开门，屋内传来潮湿木头的气味。")
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_raw_turn_rolls_back_when_attempt_cannot_be_linked(self) -> None:
+        tmp, conn, _campaign_id, session_id = self._conn()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "could not be bound"):
+                StateKeeperAgent().persist_raw(
+                    conn,
+                    session_id=session_id,
+                    player_text="我尝试开锁",
+                    dm_raw="不会被提交",
+                    dice_events=[],
+                    attempt_id="missing-ledger-attempt",
+                    adjudication_json="{}",
+                )
+
+            count = conn.execute(
+                "SELECT COUNT(*) FROM turn_logs WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()[0]
+            self.assertEqual(count, 0)
         finally:
             conn.close()
             tmp.cleanup()
