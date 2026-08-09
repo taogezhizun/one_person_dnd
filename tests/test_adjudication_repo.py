@@ -156,6 +156,75 @@ class TestAdjudicationRepo(unittest.TestCase):
             )
         )
 
+    def test_generation_claim_is_atomic_releasable_and_expirable(self) -> None:
+        adjudication_records.create(
+            self.conn,
+            session_id=self.session_id,
+            attempt_id="lease-me",
+            fingerprint="fp",
+            record_json="{}",
+        )
+        self.conn.commit()
+        contender = get_connection(self.db_path)
+        try:
+            self.assertTrue(
+                adjudication_records.try_claim(
+                    self.conn,
+                    session_id=self.session_id,
+                    attempt_id="lease-me",
+                    claim_token="owner-a",
+                    lease_seconds=60,
+                )
+            )
+            self.conn.commit()
+            self.assertFalse(
+                adjudication_records.try_claim(
+                    contender,
+                    session_id=self.session_id,
+                    attempt_id="lease-me",
+                    claim_token="owner-b",
+                    lease_seconds=60,
+                )
+            )
+            contender.commit()
+            self.assertFalse(
+                adjudication_records.release_claim(
+                    contender,
+                    session_id=self.session_id,
+                    attempt_id="lease-me",
+                    claim_token="owner-b",
+                )
+            )
+            contender.commit()
+
+            self.conn.execute(
+                """
+                UPDATE adjudication_records
+                SET claim_expires_at = unixepoch() - 1
+                WHERE session_id = ? AND attempt_id = ?
+                """,
+                (self.session_id, "lease-me"),
+            )
+            self.conn.commit()
+            self.assertTrue(
+                adjudication_records.try_claim(
+                    contender,
+                    session_id=self.session_id,
+                    attempt_id="lease-me",
+                    claim_token="owner-b",
+                    lease_seconds=60,
+                )
+            )
+            contender.commit()
+            claimed = adjudication_records.get_by_attempt(
+                contender,
+                session_id=self.session_id,
+                attempt_id="lease-me",
+            )
+            self.assertEqual(claimed["claim_token"], "owner-b")
+        finally:
+            contender.close()
+
     def test_turn_log_attempt_partial_unique_index_is_session_scoped(self) -> None:
         for turn_index in (0, 1):
             turn_logs.insert_turn_log(
@@ -284,7 +353,7 @@ class TestAdjudicationRepo(unittest.TestCase):
 
 
 class TestAdjudicationSchemaMigration(unittest.TestCase):
-    def test_v9_migrates_sequentially_to_v10(self) -> None:
+    def test_v9_migrates_sequentially_to_v11(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "v9.sqlite3"
             conn = get_connection(db_path)
@@ -299,7 +368,7 @@ class TestAdjudicationSchemaMigration(unittest.TestCase):
             schema.init_db(db_path)
             conn = get_connection(db_path)
             try:
-                self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 10)
+                self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 11)
                 turn_columns = {
                     row["name"] for row in conn.execute("PRAGMA table_info(turn_logs)").fetchall()
                 }
@@ -309,6 +378,14 @@ class TestAdjudicationSchemaMigration(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'adjudication_records'"
                 ).fetchone()
                 self.assertIsNotNone(table)
+                adjudication_columns = {
+                    row["name"]
+                    for row in conn.execute(
+                        "PRAGMA table_info(adjudication_records)"
+                    ).fetchall()
+                }
+                self.assertIn("claim_token", adjudication_columns)
+                self.assertIn("claim_expires_at", adjudication_columns)
                 partial_index = conn.execute(
                     "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_turn_logs_unique_attempt'"
                 ).fetchone()

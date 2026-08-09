@@ -8,6 +8,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from one_person_dnd.config import AppState, save_app_state
 from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import campaigns, character_sheets, sessions, world_bible
+from one_person_dnd.domain.characters import (
+    CharacterSheetValidationError,
+    normalize_generated_character_sheet,
+)
 from one_person_dnd.llm import ChatMessage, LLMClientError, create_llm_client
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import load_active_llm_config, templates
@@ -24,9 +28,6 @@ DEFAULT_FORM_VALUES = {
     "character_count": 1,
     "extra_constraints": "",
 }
-
-CANONICAL_ABILITIES = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
-
 
 def _new_context(**overrides: object) -> dict[str, object]:
     context: dict[str, object] = {
@@ -63,43 +64,6 @@ def _bounded_int(value: object, fallback: int, *, minimum: int, maximum: int) ->
     except (TypeError, ValueError):
         parsed = fallback
     return max(minimum, min(maximum, parsed))
-
-
-def _normalize_generated_character_sheet(sheet: dict) -> dict:
-    party = sheet.get("party")
-    if not isinstance(party, list) or not party:
-        raise ValueError("生成结果中的角色卡必须包含至少一名 party 角色")
-
-    normalized_party: list[dict] = []
-    for member in party:
-        if not isinstance(member, dict):
-            raise ValueError("生成结果中的 party 角色格式不正确")
-
-        normalized = dict(member)
-        raw_abilities = member.get("abilities")
-        if not isinstance(raw_abilities, dict):
-            raw_abilities = {}
-        normalized["level"] = _bounded_int(member.get("level"), 1, minimum=1, maximum=20)
-        normalized["abilities"] = {
-            ability: _bounded_int(raw_abilities.get(ability), 10, minimum=1, maximum=30)
-            for ability in CANONICAL_ABILITIES
-        }
-
-        raw_skills = member.get("skill_proficiencies")
-        if isinstance(raw_skills, str):
-            skill_items = raw_skills.replace("，", ",").split(",")
-        elif isinstance(raw_skills, list):
-            skill_items = raw_skills
-        else:
-            skill_items = []
-        normalized["skill_proficiencies"] = list(
-            dict.fromkeys(str(item).strip() for item in skill_items if str(item).strip())
-        )
-        normalized_party.append(normalized)
-
-    normalized_sheet = dict(sheet)
-    normalized_sheet["party"] = normalized_party
-    return normalized_sheet
 
 
 def _encode_source_form(form_values: dict[str, object], proposal: dict[str, str]) -> str:
@@ -305,7 +269,7 @@ def new_generate(
         sheet = obj.get("character_sheet") or {}
         if not isinstance(entries, list) or not isinstance(sheet, dict):
             raise ValueError("生成结果中的世界设定或角色卡格式不正确")
-        sheet = _normalize_generated_character_sheet(sheet)
+        sheet = normalize_generated_character_sheet(sheet)
         obj["character_sheet"] = sheet
         obj["adventure_name"] = _bounded_text(
             obj.get("adventure_name"), proposal["adventure_name"] or "未命名冒险"
@@ -387,8 +351,8 @@ def new_apply(
         # The preview is editable client input. Re-establish the canonical
         # character contract at the final persistence boundary instead of
         # trusting that it still matches the earlier generated preview.
-        sheet = _normalize_generated_character_sheet(sheet)
-    except ValueError as exc:
+        sheet = normalize_generated_character_sheet(sheet)
+    except CharacterSheetValidationError as exc:
         raise HTTPException(status_code=400, detail=f"无法采用这份角色卡：{exc}") from exc
 
     final_adventure_name = _bounded_text(adventure_name, _bounded_text(obj.get("adventure_name"), "未命名冒险"))

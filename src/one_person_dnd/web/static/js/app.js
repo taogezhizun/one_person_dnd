@@ -1455,6 +1455,7 @@
               setTurnRequestUI(true);
               currentTurnAbortController = new AbortController();
               let turnSucceeded = false;
+              const terminalTracker = window.DndTurnStreamState.createTerminalTracker();
 
               const fd = new FormData(form);
               try {
@@ -1491,6 +1492,7 @@
                     } catch (_) {
                       payload = { message: data };
                     }
+                    terminalTracker.observe(event);
 
                     if (event === "delta") {
                       if (asstContent) {
@@ -1533,6 +1535,7 @@
                     }
                   }
                 }
+                terminalTracker.assertClosed();
 
                 if (ta && turnSucceeded) {
                   ta.value = "";
@@ -1682,6 +1685,16 @@
           shouldFollowScroll = lastTurnShouldFollowScroll;
           hasUnreadNewContent = false;
           updateScrollButton();
+        });
+
+        document.body.addEventListener("htmx:beforeSwap", function (evt) {
+          const xhr = evt.detail && evt.detail.xhr;
+          const turnAccepted = xhr ? xhr.getResponseHeader("X-Turn-Accepted") : null;
+          if (turnAccepted !== "0") return;
+          // Turn errors deliberately retain their HTTP status. Render the safe
+          // server partial while keeping the action draft and attempt id intact.
+          evt.detail.shouldSwap = true;
+          evt.detail.isError = false;
         });
 
         document.body.addEventListener("htmx:afterRequest", function (evt) {

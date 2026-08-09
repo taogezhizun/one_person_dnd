@@ -34,6 +34,8 @@ class TestUITemplates(unittest.TestCase):
         ):
             self.assertIn(src, base)
         self.assertNotIn("unpkg.com", base)
+        self.assertIn('<script src="/static/js/turn_stream_state.js"></script>', base)
+        self.assertLess(base.index("turn_stream_state.js"), base.index("/static/js/app.js"))
 
     def test_base_locks_htmx_to_same_origin_without_dynamic_code(self) -> None:
         base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
@@ -632,6 +634,14 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("turnSucceeded = true;", app_js)
         self.assertIn("if (ta && turnSucceeded)", app_js)
         self.assertIn("clearTurnDraft(form);", app_js)
+
+    def test_htmx_turn_errors_are_rendered_without_clearing_the_draft(self) -> None:
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
+
+        self.assertIn('addEventListener("htmx:beforeSwap"', app_js)
+        self.assertIn('getResponseHeader("X-Turn-Accepted")', app_js)
+        self.assertIn("evt.detail.shouldSwap = true;", app_js)
+        self.assertIn("evt.detail.isError = false;", app_js)
 
     def test_player_action_textarea_autogrows_without_overrunning_story(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")

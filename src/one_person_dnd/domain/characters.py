@@ -70,6 +70,10 @@ _SKILL_ALIASES = {
 }
 
 
+class CharacterSheetValidationError(ValueError):
+    """A generated character sheet cannot safely become canonical state."""
+
+
 def _as_int(value: Any) -> int | None:
     try:
         if value is None or value == "":
@@ -99,6 +103,82 @@ def canonical_ability_name(value: Any) -> str | None:
 def canonical_skill_name(value: Any) -> str | None:
     key = " ".join(_as_text(value).replace("-", " ").split()).casefold()
     return _SKILL_ALIASES.get(key)
+
+
+def normalize_generated_character_sheet(sheet: Any) -> dict[str, Any]:
+    """Return a rules-ready new-adventure sheet or raise an actionable error."""
+    if not isinstance(sheet, dict):
+        raise CharacterSheetValidationError("生成结果中的角色卡必须是对象")
+    party = sheet.get("party")
+    if not isinstance(party, list) or not party:
+        raise CharacterSheetValidationError("生成结果中的角色卡必须包含至少一名 party 角色")
+
+    normalized_party: list[dict[str, Any]] = []
+    for index, member in enumerate(party, start=1):
+        if not isinstance(member, dict):
+            raise CharacterSheetValidationError(f"角色 {index} 必须是对象")
+
+        raw_abilities = member.get("abilities", {})
+        if not isinstance(raw_abilities, dict):
+            raise CharacterSheetValidationError(f"角色 {index} 的 abilities 必须是对象")
+        missing_abilities = [
+            ability for ability in CANONICAL_ABILITIES if ability not in raw_abilities
+        ]
+        if missing_abilities:
+            raise CharacterSheetValidationError(
+                f"角色 {index} 缺少 canonical 属性：{', '.join(missing_abilities)}"
+            )
+        abilities: dict[str, int] = {}
+        for ability in CANONICAL_ABILITIES:
+            value = raw_abilities[ability]
+            if type(value) is not int or not 1 <= value <= 30:
+                raise CharacterSheetValidationError(
+                    f"角色 {index} 的 {ability} 必须是 1-30 的整数"
+                )
+            abilities[ability] = value
+
+        if "level" not in member:
+            raise CharacterSheetValidationError(f"角色 {index} 必须提供 level")
+        raw_level = member["level"]
+        if type(raw_level) is not int or not 1 <= raw_level <= 20:
+            raise CharacterSheetValidationError(
+                f"角色 {index} 的 level 必须是 1-20 的整数"
+            )
+        level = raw_level
+
+        if "skill_proficiencies" not in member:
+            raise CharacterSheetValidationError(
+                f"角色 {index} 必须提供 skill_proficiencies"
+            )
+        raw_skills = member["skill_proficiencies"]
+        if isinstance(raw_skills, str):
+            skill_items = raw_skills.replace("，", ",").split(",")
+        elif isinstance(raw_skills, list):
+            skill_items = raw_skills
+        else:
+            raise CharacterSheetValidationError(
+                f"角色 {index} 的 skill_proficiencies 必须是数组或逗号分隔字符串"
+            )
+
+        skills: list[str] = []
+        for raw_skill in skill_items:
+            skill = canonical_skill_name(raw_skill)
+            if skill is None:
+                raise CharacterSheetValidationError(
+                    f"角色 {index} 包含未知技能：{_as_text(raw_skill) or '空值'}"
+                )
+            if skill not in skills:
+                skills.append(skill)
+
+        normalized = dict(member)
+        normalized["level"] = level
+        normalized["abilities"] = abilities
+        normalized["skill_proficiencies"] = skills
+        normalized_party.append(normalized)
+
+    normalized_sheet = dict(sheet)
+    normalized_sheet["party"] = normalized_party
+    return normalized_sheet
 
 
 def _normalize_ability_scores(value: Any) -> tuple[dict[str, int], list[str]]:

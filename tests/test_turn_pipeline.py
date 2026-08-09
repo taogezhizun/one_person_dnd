@@ -1,10 +1,19 @@
 import sqlite3
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
-from one_person_dnd.adjudication import ActionAdjudicator, AttemptConflict, SequenceRoller
+from one_person_dnd.adjudication import (
+    ActionAdjudicator,
+    AdjudicationStoreBusy,
+    AdjudicationStoreCorrupt,
+    AttemptConflict,
+    SequenceRoller,
+)
 from one_person_dnd.agents.pipeline import TurnPipeline
 from one_person_dnd.agents.state_keeper import StateKeeperAgent
 from one_person_dnd.config import MemoryConfig
@@ -163,6 +172,42 @@ class UnexpectedDMClient:
     def chat(self, messages: list[ChatMessage]) -> str:
         self.calls += 1
         raise AssertionError("completed attempts must not call the LLM again")
+
+
+class BarrierDMClient:
+    """Hold the first provider call open so a duplicate request can race it."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.calls = 0
+        self.first_call_barrier = threading.Barrier(2)
+        self.second_call_started = threading.Event()
+        self.release = threading.Event()
+
+    def chat(self, messages: list[ChatMessage]) -> str:
+        with self._lock:
+            self.calls += 1
+            call_number = self.calls
+        if call_number == 1:
+            self.first_call_barrier.wait(timeout=2)
+        else:
+            self.second_call_started.set()
+        if not self.release.wait(timeout=3):
+            raise AssertionError("test did not release the provider call")
+        return "\n".join(
+            [
+                "===NARRATION===",
+                "锁舌弹开，门后露出一条向下的石阶。",
+                "===CHOICES===",
+                "- 沿石阶向下",
+                "- 检查门锁结构",
+                "- 退回门厅",
+                "===DM_NOTES===",
+                "并发请求只应生成一次。",
+                "===MEMORY===",
+                "玩家打开了通往地下的门。",
+            ]
+        )
 
 
 class TestTurnPipeline(unittest.TestCase):
@@ -395,6 +440,215 @@ class TestTurnPipeline(unittest.TestCase):
             conn.close()
             tmp.cleanup()
 
+    def test_concurrent_same_attempt_calls_llm_once_and_replays_to_loser(self) -> None:
+        tmp, first_conn, campaign_id, session_id = self._conn()
+        second_conn = get_connection(Path(tmp.name) / "test.sqlite3")
+        client = BarrierDMClient()
+        action = PlayerAction(
+            campaign_id=campaign_id,
+            session_id=session_id,
+            text="我尝试开锁",
+            attempt_id="concurrent-same-attempt",
+        )
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first_future = executor.submit(
+                    TurnPipeline(dm_client=client).run_non_streaming,
+                    first_conn,
+                    action=action,
+                    memory_cfg=MemoryConfig(),
+                )
+                client.first_call_barrier.wait(timeout=2)
+                second_future = executor.submit(
+                    TurnPipeline(dm_client=client).run_non_streaming,
+                    second_conn,
+                    action=action,
+                    memory_cfg=MemoryConfig(),
+                )
+
+                duplicate_reached_provider = client.second_call_started.wait(timeout=0.3)
+                client.release.set()
+                outcomes: list[object] = []
+                errors: list[BaseException] = []
+                for future in (first_future, second_future):
+                    try:
+                        outcomes.append(future.result(timeout=3))
+                    except BaseException as exc:  # asserted below for a clearer RED failure
+                        errors.append(exc)
+
+            self.assertFalse(duplicate_reached_provider)
+            self.assertEqual(errors, [])
+            self.assertEqual(client.calls, 1)
+            self.assertEqual(len(outcomes), 2)
+            first_result, second_result = outcomes
+            self.assertEqual(first_result.turn_index, second_result.turn_index)
+            self.assertEqual(first_result.dm_raw_text, second_result.dm_raw_text)
+            self.assertEqual(sum(result.replayed for result in outcomes), 1)
+            self.assertEqual(
+                len(turn_logs.list_all_for_session(first_conn, session_id=session_id)),
+                1,
+            )
+            ledger = adjudication_records.get_by_attempt(
+                first_conn,
+                session_id=session_id,
+                attempt_id=action.attempt_id,
+            )
+            self.assertIsNone(ledger["claim_token"])
+            self.assertIsNone(ledger["claim_expires_at"])
+        finally:
+            client.release.set()
+            second_conn.close()
+            first_conn.close()
+            tmp.cleanup()
+
+    def test_prepared_turn_claim_supports_sse_renew_release_and_bounded_wait(self) -> None:
+        tmp, first_conn, campaign_id, session_id = self._conn()
+        second_conn = get_connection(Path(tmp.name) / "test.sqlite3")
+        action = PlayerAction(
+            campaign_id=campaign_id,
+            session_id=session_id,
+            text="我尝试开锁",
+            attempt_id="stream-claim",
+        )
+        owner = TurnPipeline(dm_client=FakeDMClient())
+        try:
+            prepared = owner.prepare_turn(
+                first_conn,
+                action=action,
+                memory_cfg=MemoryConfig(),
+            )
+            self.assertIsNotNone(prepared.claim_token)
+            self.assertTrue(
+                owner.renew_generation_claim(first_conn, prepared=prepared)
+            )
+
+            contender_client = UnexpectedDMClient()
+            with patch(
+                "one_person_dnd.agents.pipeline._GENERATION_CLAIM_WAIT_SECONDS",
+                0,
+            ):
+                with self.assertRaises(AdjudicationStoreBusy):
+                    TurnPipeline(dm_client=contender_client).run_non_streaming(
+                        second_conn,
+                        action=action,
+                        memory_cfg=MemoryConfig(),
+                    )
+            self.assertEqual(contender_client.calls, 0)
+
+            self.assertTrue(
+                owner.release_generation_claim(first_conn, prepared=prepared)
+            )
+            stored = adjudication_records.get_by_attempt(
+                first_conn,
+                session_id=session_id,
+                attempt_id=action.attempt_id,
+            )
+            self.assertIsNone(stored["claim_token"])
+            self.assertIsNone(stored["claim_expires_at"])
+        finally:
+            second_conn.close()
+            first_conn.close()
+            tmp.cleanup()
+
+    def test_generation_claim_lease_covers_configured_provider_timeout(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+
+        class LongTimeoutClient(FakeDMClient):
+            request_timeout_seconds = 600.0
+
+        action = PlayerAction(
+            campaign_id=campaign_id,
+            session_id=session_id,
+            text="我尝试开锁",
+            attempt_id="long-provider-timeout",
+        )
+        pipeline = TurnPipeline(dm_client=LongTimeoutClient())
+        try:
+            prepared = pipeline.prepare_turn(
+                conn,
+                action=action,
+                memory_cfg=MemoryConfig(),
+            )
+            row = conn.execute(
+                """
+                SELECT claim_expires_at - unixepoch() AS lease_remaining
+                FROM adjudication_records
+                WHERE session_id = ? AND attempt_id = ?
+                """,
+                (session_id, action.attempt_id),
+            ).fetchone()
+
+            self.assertGreaterEqual(int(row["lease_remaining"]), 2400)
+            pipeline.release_generation_claim(conn, prepared=prepared)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_sqlite_lock_while_claiming_is_a_typed_busy_error_before_llm(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+        client = UnexpectedDMClient()
+        action = PlayerAction(
+            campaign_id=campaign_id,
+            session_id=session_id,
+            text="我尝试开锁",
+            attempt_id="locked-generation-claim",
+        )
+        try:
+            with (
+                patch(
+                    "one_person_dnd.agents.pipeline.adjudication_records.try_claim",
+                    side_effect=sqlite3.OperationalError("database is locked"),
+                ),
+                self.assertRaises(AdjudicationStoreBusy),
+            ):
+                TurnPipeline(dm_client=client).run_non_streaming(
+                    conn,
+                    action=action,
+                    memory_cfg=MemoryConfig(),
+                )
+
+            self.assertEqual(client.calls, 0)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_context_failure_releases_generation_claim_for_immediate_retry(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+        action = PlayerAction(
+            campaign_id=campaign_id,
+            session_id=session_id,
+            text="我尝试开锁",
+            attempt_id="context-failure",
+        )
+
+        class FailingContextCurator:
+            def run(self, *args, **kwargs):
+                raise RuntimeError("simulated context failure")
+
+        try:
+            with self.assertRaisesRegex(RuntimeError, "context failure"):
+                TurnPipeline(
+                    dm_client=UnexpectedDMClient(),
+                    context_curator=FailingContextCurator(),
+                ).run_non_streaming(conn, action=action, memory_cfg=MemoryConfig())
+
+            stored = adjudication_records.get_by_attempt(
+                conn,
+                session_id=session_id,
+                attempt_id=action.attempt_id,
+            )
+            self.assertIsNone(stored["claim_token"])
+            result = TurnPipeline(dm_client=FakeDMClient()).run_non_streaming(
+                conn,
+                action=action,
+                memory_cfg=MemoryConfig(),
+            )
+            self.assertEqual(result.turn_index, 0)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
     def test_attempt_id_reuse_with_changed_action_fails_before_llm(self) -> None:
         tmp, conn, campaign_id, session_id = self._conn()
         try:
@@ -501,6 +755,37 @@ class TestTurnPipeline(unittest.TestCase):
             self.assertNotIn("choice_count_out_of_range", result.critic_warnings)
             self.assertIn("返回门厅寻找其他入口", row["dm_text"])
             self.assertNotIn("- 继续向前\n===DM_NOTES===", row["dm_text"])
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_non_streaming_does_not_repair_after_losing_generation_claim(self) -> None:
+        tmp, conn, campaign_id, session_id = self._conn()
+        try:
+            client = RepairableOneChoiceDMClient()
+            action = PlayerAction(
+                campaign_id=campaign_id,
+                session_id=session_id,
+                text="我继续向前",
+                attempt_id="lost-before-repair",
+            )
+            pipeline = TurnPipeline(dm_client=client)
+
+            with (
+                patch.object(pipeline, "renew_generation_claim", return_value=False),
+                self.assertRaises(AdjudicationStoreCorrupt),
+            ):
+                pipeline.run_non_streaming(
+                    conn,
+                    action=action,
+                    memory_cfg=MemoryConfig(),
+                )
+
+            self.assertEqual(len(client.calls), 1)
+            self.assertEqual(
+                turn_logs.list_all_for_session(conn, session_id=session_id),
+                [],
+            )
         finally:
             conn.close()
             tmp.cleanup()

@@ -5,6 +5,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from one_person_dnd.adjudication import (
+    AdjudicationStoreBusy,
+    AdjudicationStoreCorrupt,
+    AttemptConflict,
+)
 from one_person_dnd.config import LLMConfig
 from one_person_dnd.db.repos import app_settings, campaigns, plot_threads, sessions, state_change_requests, world_bible
 from one_person_dnd.db.schema import init_db
@@ -408,6 +413,86 @@ class TestGameRoutes(unittest.TestCase):
         finally:
             tmp.cleanup()
 
+    def test_non_streaming_adjudication_conflict_returns_safe_retryable_response(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        class ConflictingPipeline:
+            def __init__(self, *, dm_client) -> None:
+                self.dm_client = dm_client
+
+            def run_non_streaming(self, conn, **kwargs):
+                raise AttemptConflict("UNIQUE constraint failed at /private/save.sqlite3")
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.game.load_active_llm_config",
+                    return_value=LLMConfig(base_url="http://example.test/v1", api_key="k", model="m"),
+                ),
+                patch("one_person_dnd.web.routes.game.create_llm_client", return_value=object()),
+                patch("one_person_dnd.web.routes.game.TurnPipeline", ConflictingPipeline),
+                patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda **kwargs: kwargs
+                response = game.game_turn(
+                    request=object(),
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    player_text="我检查门锁",
+                    attempt_id="conflicting-attempt",
+                    tags="",
+                    state_block="",
+                )
+
+            self.assertEqual(response["status_code"], 409)
+            self.assertEqual(response["headers"]["X-Turn-Accepted"], "0")
+            self.assertIn("冲突", response["context"]["message"])
+            self.assertNotIn("UNIQUE", response["context"]["message"])
+            self.assertNotIn("/private", response["context"]["message"])
+        finally:
+            tmp.cleanup()
+
+    def test_non_streaming_busy_error_returns_503_and_preserves_retry_contract(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        class BusyPipeline:
+            def __init__(self, *, dm_client) -> None:
+                self.dm_client = dm_client
+
+            def run_non_streaming(self, conn, **kwargs):
+                raise AdjudicationStoreBusy("database is locked at /private/save.sqlite3")
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.game.load_active_llm_config",
+                    return_value=LLMConfig(base_url="http://example.test/v1", api_key="k", model="m"),
+                ),
+                patch("one_person_dnd.web.routes.game.create_llm_client", return_value=object()),
+                patch("one_person_dnd.web.routes.game.TurnPipeline", BusyPipeline),
+                patch("one_person_dnd.web.routes.game.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda **kwargs: kwargs
+                response = game.game_turn(
+                    request=object(),
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    player_text="我检查门锁",
+                    attempt_id="busy-attempt",
+                    tags="",
+                    state_block="",
+                )
+
+            self.assertEqual(response["status_code"], 503)
+            self.assertEqual(response["headers"]["X-Turn-Accepted"], "0")
+            self.assertEqual(response["headers"]["Retry-After"], "1")
+            self.assertNotIn("database", response["context"]["message"])
+            self.assertNotIn("/private", response["context"]["message"])
+        finally:
+            tmp.cleanup()
+
     def test_non_streaming_turn_marks_pending_review_when_dm_suggests_state_change(self) -> None:
         tmp, paths, campaign_id, session_id = self._paths_with_session()
         protocol = "\n".join(
@@ -732,5 +817,202 @@ class TestGameRoutes(unittest.TestCase):
             self.assertNotIn("event: delta", body)
             self.assertIn('"replayed": true', body)
             self.assertIn("这是已保存的结果", body)
+        finally:
+            tmp.cleanup()
+
+    def test_streaming_provider_failure_releases_generation_claim(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        class FailingStreamClient:
+            def chat_stream_sse(self, messages):
+                raise LLMClientError("provider disconnected")
+                yield  # pragma: no cover - keeps this a generator
+
+        class ClaimPipeline:
+            release_calls = 0
+
+            def __init__(self, *, dm_client) -> None:
+                self.dm_client = dm_client
+
+            def prepare_turn(self, conn, *, action, **kwargs):
+                return SimpleNamespace(
+                    action=action,
+                    completed_result=None,
+                    messages=[ChatMessage(role="user", content=action.text)],
+                    recalled_world=[],
+                    recalled_context=[],
+                    dice_events=[],
+                    action_assessment=ActionAssessment(action_type="exploration", dice_events=[]),
+                    claim_token="claim-token",
+                )
+
+            def release_generation_claim(self, conn, *, prepared):
+                ClaimPipeline.release_calls += 1
+                return True
+
+        async def collect_body(response) -> str:
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+            return "".join(chunks)
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.game.load_active_llm_config",
+                    return_value=LLMConfig(base_url="http://example.test/v1", api_key="k", model="m"),
+                ),
+                patch("one_person_dnd.web.routes.game.create_llm_client", return_value=FailingStreamClient()),
+                patch("one_person_dnd.web.routes.game.TurnPipeline", ClaimPipeline),
+            ):
+                response = game.game_turn_stream(
+                    request=object(),
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    player_text="我检查门锁",
+                    attempt_id="leased-attempt",
+                    tags="",
+                    state_block="",
+                )
+                body = asyncio.run(collect_body(response))
+
+            self.assertIn("event: error", body)
+            self.assertEqual(ClaimPipeline.release_calls, 1)
+        finally:
+            tmp.cleanup()
+
+    def test_streaming_turn_renews_generation_claim_during_long_stream(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+        protocol = "\n".join(
+            [
+                "===NARRATION===",
+                "门锁缓慢弹开。",
+                "===CHOICES===",
+                "- 进入门后",
+                "- 检查锁芯",
+                "===DM_NOTES===",
+                "ok",
+                "===MEMORY===",
+                "玩家打开了门。",
+            ]
+        )
+
+        class SlowStreamClient:
+            def chat_stream_sse(self, messages):
+                yield protocol
+
+        class ClaimPipeline:
+            renew_calls = 0
+
+            def __init__(self, *, dm_client) -> None:
+                self.dm_client = dm_client
+
+            def prepare_turn(self, conn, *, action, **kwargs):
+                return SimpleNamespace(
+                    action=action,
+                    completed_result=None,
+                    messages=[ChatMessage(role="user", content=action.text)],
+                    recalled_world=[],
+                    recalled_context=[],
+                    dice_events=[],
+                    action_assessment=ActionAssessment(action_type="exploration", dice_events=[]),
+                    claim_token="claim-token",
+                )
+
+            def renew_generation_claim(self, conn, *, prepared):
+                ClaimPipeline.renew_calls += 1
+                return True
+
+            def release_generation_claim(self, conn, *, prepared):
+                return True
+
+            def persist_dm_output(self, conn, *, action, dm_raw, recalled_world, dice_events, **kwargs):
+                return TurnResult(
+                    turn_index=0,
+                    dm_raw_text=dm_raw,
+                    dm=parse_dm_text(dm_raw),
+                    recalled_world=recalled_world,
+                    dice_events=dice_events,
+                )
+
+        async def collect_body(response) -> str:
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+            return "".join(chunks)
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.game.load_active_llm_config",
+                    return_value=LLMConfig(base_url="http://example.test/v1", api_key="k", model="m"),
+                ),
+                patch("one_person_dnd.web.routes.game.create_llm_client", return_value=SlowStreamClient()),
+                patch("one_person_dnd.web.routes.game.TurnPipeline", ClaimPipeline),
+                patch(
+                    "one_person_dnd.web.routes.game._claim_clock",
+                    side_effect=[0.0, 61.0],
+                    create=True,
+                ),
+            ):
+                response = game.game_turn_stream(
+                    request=object(),
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    player_text="我检查门锁",
+                    attempt_id="long-stream-attempt",
+                    tags="",
+                    state_block="",
+                )
+                body = asyncio.run(collect_body(response))
+
+            self.assertIn("event: final", body)
+            self.assertEqual(ClaimPipeline.renew_calls, 1)
+        finally:
+            tmp.cleanup()
+
+    def test_streaming_adjudication_error_uses_safe_public_message(self) -> None:
+        tmp, paths, campaign_id, session_id = self._paths_with_session()
+
+        class CorruptPipeline:
+            def __init__(self, *, dm_client) -> None:
+                self.dm_client = dm_client
+
+            def prepare_turn(self, conn, **kwargs):
+                raise AdjudicationStoreCorrupt("record_json leaked /private/save.sqlite3")
+
+        async def collect_body(response) -> str:
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+            return "".join(chunks)
+
+        try:
+            with (
+                patch("one_person_dnd.web.routes.game.ensure_app_dirs", return_value=paths),
+                patch(
+                    "one_person_dnd.web.routes.game.load_active_llm_config",
+                    return_value=LLMConfig(base_url="http://example.test/v1", api_key="k", model="m"),
+                ),
+                patch("one_person_dnd.web.routes.game.create_llm_client", return_value=object()),
+                patch("one_person_dnd.web.routes.game.TurnPipeline", CorruptPipeline),
+            ):
+                response = game.game_turn_stream(
+                    request=object(),
+                    campaign_id=campaign_id,
+                    session_id=session_id,
+                    player_text="我检查门锁",
+                    attempt_id="corrupt-attempt",
+                    tags="",
+                    state_block="",
+                )
+                body = asyncio.run(collect_body(response))
+
+            self.assertIn("event: error", body)
+            self.assertIn("已保存的检定", body)
+            self.assertNotIn("record_json", body)
+            self.assertNotIn("/private", body)
         finally:
             tmp.cleanup()

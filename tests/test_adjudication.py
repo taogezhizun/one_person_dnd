@@ -1,12 +1,15 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from one_person_dnd.adjudication import (
     ActionAdjudicator,
     AdjudicationRecord,
     AdjudicationRequest,
+    AdjudicationStoreBusy,
     AttemptConflict,
     InvalidAdjudicationInput,
     SequenceRoller,
@@ -70,6 +73,120 @@ class TestActionAdjudicator(unittest.TestCase):
             self.assertIsNone(record.check)
             self.assertEqual(roller.calls, 0)
             self.assertIn("no_check_needed", record.signals)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_investigating_an_attacker_trace_remains_an_exploration_check(self) -> None:
+        tmp, conn, campaign_id, session_id = self._game(
+            {"name": "艾拉", "ability_scores": {"INT": 14}}
+        )
+        try:
+            record = ActionAdjudicator(conn=conn, roller=SequenceRoller([12])).adjudicate(
+                AdjudicationRequest(
+                    "attacker-trace",
+                    self._action(campaign_id, session_id, "我调查攻击者留下的足迹"),
+                )
+            )
+
+            self.assertEqual(record.status, "resolved")
+            self.assertEqual(record.action_type, "exploration")
+            self.assertIsNotNone(record.check)
+            assert record.check is not None
+            self.assertEqual(record.check.skill, "Investigation")
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_locked_ledger_read_is_a_typed_busy_error_before_rolling(self) -> None:
+        tmp, conn, campaign_id, session_id = self._game(
+            {"name": "艾拉", "ability_scores": {"INT": 14}}
+        )
+        roller = SequenceRoller([12])
+        try:
+            with (
+                patch(
+                    "one_person_dnd.db.repos.adjudication_records.get_by_attempt",
+                    side_effect=sqlite3.OperationalError("database is locked"),
+                ),
+                self.assertRaises(AdjudicationStoreBusy),
+            ):
+                ActionAdjudicator(conn=conn, roller=roller).adjudicate(
+                    AdjudicationRequest(
+                        "locked-ledger-read",
+                        self._action(campaign_id, session_id, "我调查门锁"),
+                    )
+                )
+
+            self.assertEqual(roller.calls, 0)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_observing_traces_of_a_past_battle_remains_exploration(self) -> None:
+        tmp, conn, campaign_id, session_id = self._game(
+            {"name": "艾拉", "ability_scores": {"WIS": 14}}
+        )
+        try:
+            record = ActionAdjudicator(conn=conn, roller=SequenceRoller([12])).adjudicate(
+                AdjudicationRequest(
+                    "battle-traces",
+                    self._action(campaign_id, session_id, "我观察战斗留下的痕迹"),
+                )
+            )
+
+            self.assertEqual(record.status, "resolved")
+            self.assertEqual(record.action_type, "exploration")
+            self.assertIsNotNone(record.check)
+            assert record.check is not None
+            self.assertEqual(record.check.skill, "Perception")
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_stabbing_with_a_sword_is_explicitly_unsupported(self) -> None:
+        tmp, conn, campaign_id, session_id = self._game(
+            {"name": "艾拉", "ability_scores": {"STR": 14}}
+        )
+        try:
+            roller = SequenceRoller([])
+            record = ActionAdjudicator(conn=conn, roller=roller).adjudicate(
+                AdjudicationRequest(
+                    "sword-stab",
+                    self._action(campaign_id, session_id, "我用剑刺向哥布林"),
+                )
+            )
+
+            self.assertEqual(record.status, "unsupported")
+            self.assertEqual(record.action_type, "combat")
+            self.assertIsNone(record.check)
+            self.assertEqual(roller.calls, 0)
+            self.assertIn("adjudication_unsupported", record.signals)
+        finally:
+            conn.close()
+            tmp.cleanup()
+
+    def test_explicit_weapon_attack_verbs_are_unsupported(self) -> None:
+        tmp, conn, campaign_id, session_id = self._game(
+            {"name": "艾拉", "ability_scores": {"STR": 14, "DEX": 14}}
+        )
+        try:
+            for index, text in enumerate(
+                ("我用斧头劈向兽人", "我举锤砸向骷髅", "我用弓射向狼"),
+                start=1,
+            ):
+                with self.subTest(text=text):
+                    roller = SequenceRoller([])
+                    record = ActionAdjudicator(conn=conn, roller=roller).adjudicate(
+                        AdjudicationRequest(
+                            f"weapon-attack-{index}",
+                            self._action(campaign_id, session_id, text),
+                        )
+                    )
+
+                    self.assertEqual(record.status, "unsupported")
+                    self.assertEqual(record.action_type, "combat")
+                    self.assertEqual(roller.calls, 0)
         finally:
             conn.close()
             tmp.cleanup()

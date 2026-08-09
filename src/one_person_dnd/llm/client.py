@@ -48,6 +48,11 @@ class OpenAICompatClient:
     def __init__(self, cfg: LLMConfig) -> None:
         self._cfg = apply_provider_defaults(cfg)
 
+    @property
+    def request_timeout_seconds(self) -> float:
+        """Maximum configured read wait used to size the generation lease."""
+        return float(self._cfg.timeout_seconds)
+
     def _endpoint(self) -> str:
         """
         Accept either:

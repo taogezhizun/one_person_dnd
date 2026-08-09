@@ -19,6 +19,16 @@ class TestOpenAICompatClient(unittest.TestCase):
         c = OpenAICompatClient(cfg)
         self.assertEqual(c._endpoint(), "http://localhost:8000/v1/chat/completions")
 
+    def test_exposes_request_timeout_for_generation_lease(self) -> None:
+        cfg = LLMConfig(
+            base_url="http://localhost:8000/v1",
+            api_key="",
+            model="m",
+            timeout_seconds=450.0,
+        )
+
+        self.assertEqual(OpenAICompatClient(cfg).request_timeout_seconds, 450.0)
+
     def test_headers_without_api_key(self) -> None:
         cfg = LLMConfig(base_url="http://localhost:8000/v1", api_key="", model="m")
         c = OpenAICompatClient(cfg)

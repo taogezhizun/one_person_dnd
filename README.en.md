@@ -46,6 +46,14 @@ Override host or port:
 python -m one_person_dnd --host 127.0.0.1 --port 8000 --no-browser
 ```
 
+The app only listens on loopback addresses unless network exposure is explicitly acknowledged:
+
+```bash
+python -m one_person_dnd --host 0.0.0.0 --allow-non-loopback --no-browser
+```
+
+Non-loopback mode exposes local saves and model-configuration pages to the network. The built-in same-origin write protection is not authentication; use this mode only on a trusted network or behind separate access control.
+
 ## First Playthrough
 
 1. Open `/models` and configure a model.

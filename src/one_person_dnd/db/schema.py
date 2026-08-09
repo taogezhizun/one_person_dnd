@@ -6,7 +6,7 @@ from pathlib import Path
 from one_person_dnd.db.conn import get_connection
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def _apply_schema_v1(conn: sqlite3.Connection) -> None:
@@ -309,6 +309,20 @@ def _apply_schema_v10(conn: sqlite3.Connection) -> None:
     )
 
 
+def _apply_schema_v11(conn: sqlite3.Connection) -> None:
+    """Lease unfinished adjudications so only one request generates the turn."""
+    cols = {
+        r["name"]
+        for r in conn.execute("PRAGMA table_info(adjudication_records);").fetchall()
+    }
+    if "claim_token" not in cols:
+        conn.execute("ALTER TABLE adjudication_records ADD COLUMN claim_token TEXT;")
+    if "claim_expires_at" not in cols:
+        conn.execute(
+            "ALTER TABLE adjudication_records ADD COLUMN claim_expires_at INTEGER;"
+        )
+
+
 def init_db(db_path: Path) -> None:
     """
     Initialize (and lightly migrate) the SQLite database using PRAGMA user_version.
@@ -349,6 +363,9 @@ def init_db(db_path: Path) -> None:
         if current_version < 10:
             _apply_schema_v10(conn)
             current_version = 10
+        if current_version < 11:
+            _apply_schema_v11(conn)
+            current_version = 11
 
         conn.execute(f"PRAGMA user_version = {current_version};")
         conn.commit()

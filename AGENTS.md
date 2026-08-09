@@ -6,6 +6,7 @@
 
 - 这是一个 Python 3.12、`src/` layout 的 FastAPI + Jinja2 本地 Web 应用。
 - 启动入口是 `python -m one_person_dnd`，实现位于 `src/one_person_dnd/launcher.py`。
+- 默认启动只接受 loopback host；监听非 loopback 地址必须显式传 `--allow-non-loopback`。这只是风险确认，不是认证。
 - 本地配置是项目根 `api_config.ini`，运行时数据库是 `.one_person_dnd/one_person_dnd.sqlite3`。二者都在 `.gitignore` 中，不要提交。
 - LLM 当前通过 OpenAI-compatible `/chat/completions` transport 工作；`openai_compat` 和 `deepseek` 已有 provider preset，DeepSeek 默认 `https://api.deepseek.com/v1` + `deepseek-chat`。
 - 测试框架是标准库 `unittest`，CI 命令见 `.github/workflows/ci.yml`。
@@ -32,6 +33,7 @@ python -m unittest discover -s tests -p "test*.py"
 ## 结构边界
 
 - Web app factory 在 `src/one_person_dnd/web/app.py`，路由统一从 `src/one_person_dnd/web/routes/__init__.py` include。
+- 跨站写请求防护集中在 `src/one_person_dnd/web/security.py`：unsafe method 遇到不匹配的 `Origin` 或 `Sec-Fetch-Site: cross-site` 必须在进入路由前返回 403；无这些浏览器头的本地旧客户端保持兼容。不要在单个路由重复实现。
 - 每个页面/功能路由放在 `src/one_person_dnd/web/routes/*.py`，模板放在 `src/one_person_dnd/web/templates/`。
 - Web 回合展示合同放在 `src/one_person_dnd/web/turn_presenter.py`。路由和历史读取都应先生成同一份 canonical turn 字典；不要在 `game.py` 的三个分支分别序列化掷骰、行动判定、诊断和待审状态。
 - Domain objects live in `src/one_person_dnd/domain/`.
@@ -67,6 +69,7 @@ python -m unittest discover -s tests -p "test*.py"
 - 游戏页 UI 应保持 play-first，但顺序要跟随游玩状态：空章节先展示行动输入区；已有历史的章节先展示故事记录，并通过紧凑输入区保持下一步行动容易触达。桌面使用故事区与冒险面板双栏布局，内容最大宽度约 2160px，冒险面板默认约 400px、可在约 340–520px 间拖拽；故事记录框右下角提供高度拖拽手柄。故事记录高度和冒险面板宽度都按 session 存入 `localStorage`，可双击对应手柄或点“重置布局”恢复默认。本轮设计只以 1280×720、1920×1080、2560×1440 桌面尺寸为验收目标，不新增第三栏、移动端专项方案或亮色主题。行动输入和快速掷骰放在故事区下方紧凑排列；最新一回合的 DM 建议紧邻输入区横向排列，点击只填入输入框，历史建议收在对应回合下。长故事记录必须在剩余可用高度内独立滚动，不能把输入区推出视口；待确认变更为 0 时不要显示待审 callout。当前冒险没有 WorldBible 且当前章节没有置顶世界设定时，`/game` 应显示轻量世界观提醒；玩家可去 `/new` 创建新冒险、去 `/memory/world/new` 手写，或通过 `/game/world-setup/skip` 为当前 session 持久跳过。紧凑故事布局不能仅因上次偏好恢复空的高级选项展开，但有未发送的本回合额外线索草稿时仍要自动展开并聚焦；`input--compact` 在 inline form 内不能被通用 `.input { width: 100%; }` 覆盖成整行。冒险面板使用角色/世界/剧情/系统四个标签；角色卡/待确认变更默认优先展示，World tab 必须直接显示当前 campaign 的 WorldBible 条目摘要并保留置顶世界设定编辑，开放 `plot_threads` 必须直接显示在“剧情”标签中，金手指、原始 JSON、prompt 类控制和回合质量诊断放进系统或高级区。`/new` 是新冒险一级入口，顶部导航和首页不要只把玩家引向存档/管理页。
 - 行动输入的 Cmd/Ctrl+Enter 快捷提交必须复用发送按钮状态：空输入、DM 未连接或回合请求进行中时不能通过快捷键绕过禁用按钮。
 - 行动表单的 `attempt_id` 是技术重试合同：同一未修改草稿失败后重试必须沿用；玩家修改行动、标签或本回合线索时必须清空并生成新 id；成功后才清空。`TurnPipeline.prepare_turn()` 必须在 LLM 前 commit 裁决记录，已完成 attempt 直接重放旧 turn，不得再调模型或新增 turn。历史只能读 `adjudication_json`，不能重新掷骰。
+- 生产 LLM client 必须公开 `request_timeout_seconds`，让 `TurnPipeline` 的生成租约覆盖 provider 重试和协议修复的最长阻塞时间；不能退回固定短租约，让仍在生成的 attempt 被并发请求接管。
 - DM `CHOICES` 在历史回合 partial 和流式 final renderer 中都应渲染为 `data-choice-action` 按钮；最新回合建议要同步提升到输入区附近，历史回合建议默认收起。`dice_events`、`action_assessment`、`critic_warnings` 和 `response_warnings` 也要在服务器渲染 partial 和流式 final renderer 中保持一致；`dice_events` 显示在玩家行动下方，critic/response warnings 显示在“系统”标签的诊断区，不要塞进 DM 叙事。
 - `/new` 的模型提案和完整生成都只是预览；只有 `/new/apply` 才创建新的 campaign 与首个 session，并写入对应世界设定和角色卡。不得复用或覆盖当前 campaign/session。提案中的冒险名、首章标题和生成后的可读预览都应允许玩家编辑，原始 JSON 只放高级区。
 - `/saves/session/restore` 是整个 session 叙事的完整回退，不只是场景/角色状态：`session_snapshots.narrative_json` 保存全部 `turn_logs`/`story_journal_entries`/`plot_threads`/`session_summaries`；恢复前创建自动安全快照，再在同一事务替换叙事、清空 pending request，并从带有效原 request fingerprint 的已恢复 turn 重建 `adjudication_records`。不能保留快照之后或未完成的 attempt ledger。`narrative_json` 为 NULL 的旧快照仍只恢复状态、不删除叙事。`/saves/session/fork` 仍只复制场景/角色字段，新分支叙事为空。

@@ -46,6 +46,14 @@ python -m one_person_dnd --no-browser
 python -m one_person_dnd --host 127.0.0.1 --port 8000 --no-browser
 ```
 
+应用默认只允许监听 loopback 地址。确实要从局域网访问时，必须显式确认风险：
+
+```bash
+python -m one_person_dnd --host 0.0.0.0 --allow-non-loopback --no-browser
+```
+
+非 loopback 模式会把本地存档和模型配置页面暴露给网络；内置同源写请求防护不能替代登录认证，只应在可信网络或另有访问控制时使用。
+
 ## 第一次游玩
 
 1. 打开 `/models`，配置一个模型。

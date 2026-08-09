@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from one_person_dnd.adjudication import AdjudicationStoreCorrupt
 from one_person_dnd.agents.pipeline import TurnPipeline
 from one_person_dnd.config import AppState, load_memory_config, save_app_state
 from one_person_dnd.db import get_connection
@@ -27,12 +28,15 @@ from one_person_dnd.domain.actions import PlayerAction
 from one_person_dnd.llm import LLMClientError, create_llm_client
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.routes.common import get_current_campaign_session, load_active_llm_config, templates
+from one_person_dnd.web.turn_errors import TURN_DOMAIN_ERRORS, public_turn_error
 from one_person_dnd.web.turn_presenter import TurnPresenter
 
 router = APIRouter()
 logger = logging.getLogger("one_person_dnd.web")
 WORLD_SETUP_SKIP_KEY_PREFIX = "world_setup_prompt_skipped.session."
 turn_presenter = TurnPresenter()
+_claim_clock = time.monotonic
+_STREAM_CLAIM_RENEW_SECONDS = 60.0
 
 
 def _world_setup_skip_key(session_id: int) -> str:
@@ -238,6 +242,19 @@ def game_turn(
             context={"player_text": player_text, "message": str(e)},
             headers={"X-Turn-Accepted": "0"},
         )
+    except TURN_DOMAIN_ERRORS as exc:
+        logger.warning("turn_rejected web_non_stream error=%s", type(exc).__name__, exc_info=True)
+        public = public_turn_error(exc)
+        headers = {"X-Turn-Accepted": "0"}
+        if public.retry_after is not None:
+            headers["Retry-After"] = public.retry_after
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/chat_turn_error_append.html",
+            context={"player_text": player_text, "message": public.message},
+            status_code=public.status_code,
+            headers=headers,
+        )
 
 
 @router.post("/game/turn/stream")
@@ -297,6 +314,8 @@ def game_turn_stream(
         dm_parts: list[str] = []
         try:
             conn = get_connection(paths.db_path)
+            pipeline = None
+            prepared = None
             try:
                 client = create_llm_client(llm_cfg)
                 action = PlayerAction(
@@ -308,6 +327,7 @@ def game_turn_stream(
                     attempt_id=_turn_attempt_id(attempt_id),
                 )
                 pipeline = TurnPipeline(dm_client=client)
+                claim_renewed_at = None
                 if hasattr(pipeline, "prepare_turn"):
                     prepared = pipeline.prepare_turn(
                         conn,
@@ -335,6 +355,9 @@ def game_turn_stream(
                     dice_events = prepared.dice_events
                     action_assessment = prepared.action_assessment
                     action = prepared.action
+                    claim_renewed_at = (
+                        _claim_clock() if getattr(prepared, "claim_token", None) else None
+                    )
                 else:
                     # Compatibility for narrow test doubles and older adapters.
                     messages, recalled_world, recalled_context, dice_events, action_assessment = pipeline.prepare_messages(
@@ -349,6 +372,12 @@ def game_turn_stream(
                 prompt_chars = sum(len(m.content or "") for m in messages)
 
                 for delta in client.chat_stream_sse(messages):
+                    if claim_renewed_at is not None:
+                        now = _claim_clock()
+                        if now - claim_renewed_at >= _STREAM_CLAIM_RENEW_SECONDS:
+                            if not pipeline.renew_generation_claim(conn, prepared=prepared):
+                                raise AdjudicationStoreCorrupt("生成租约已失效")
+                            claim_renewed_at = now
                     if first_token_ms is None:
                         first_token_ms = int((time.perf_counter() - t0) * 1000)
                     dm_parts.append(delta)
@@ -398,14 +427,32 @@ def game_turn_stream(
                     },
                 )
             finally:
+                if (
+                    pipeline is not None
+                    and prepared is not None
+                    and getattr(prepared, "claim_token", None)
+                    and hasattr(pipeline, "release_generation_claim")
+                ):
+                    try:
+                        pipeline.release_generation_claim(conn, prepared=prepared)
+                    except Exception:
+                        logger.exception(
+                            "turn_generation_claim_release_failed web_stream session=%s attempt=%s",
+                            session_id,
+                            getattr(getattr(prepared, "action", None), "attempt_id", ""),
+                        )
                 conn.close()
         except GeneratorExit:
             # client disconnected / cancelled; do not persist partial results
             return
         except LLMClientError as e:
             yield _sse("error", {"message": str(e)})
-        except Exception as e:
-            yield _sse("error", {"message": f"stream failed: {e}"})
+        except TURN_DOMAIN_ERRORS as exc:
+            logger.warning("turn_rejected web_stream error=%s", type(exc).__name__, exc_info=True)
+            yield _sse("error", {"message": public_turn_error(exc).message})
+        except Exception as exc:
+            logger.exception("turn_failed web_stream")
+            yield _sse("error", {"message": public_turn_error(exc).message})
 
     return StreamingResponse(
         _gen(),

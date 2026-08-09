@@ -79,3 +79,14 @@ class TestOrchestratorLegacyEntry(unittest.TestCase):
 
     def test_old_turn_message_builder_is_not_exported(self) -> None:
         self.assertFalse(hasattr(orchestrator, "build_turn_messages_and_preview"))
+
+    def test_zero_protocol_retries_never_claims_output_was_repaired(self) -> None:
+        text, repaired = orchestrator.ensure_dm_protocol_output(
+            object(),
+            [],
+            "provider returned an incomplete stream",
+            max_retries=0,
+        )
+
+        self.assertEqual(text, "provider returned an incomplete stream")
+        self.assertFalse(repaired)

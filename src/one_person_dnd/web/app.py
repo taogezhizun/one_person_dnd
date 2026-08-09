@@ -9,14 +9,15 @@ from fastapi.staticfiles import StaticFiles
 
 from one_person_dnd.db import init_db
 from one_person_dnd.paths import ensure_app_dirs
+from one_person_dnd.web.security import UnsafeWriteProtectionMiddleware
 
 
 def create_app() -> FastAPI:
+    app = FastAPI(title="one_person_dnd")
+    app.add_middleware(UnsafeWriteProtectionMiddleware)
     # FastAPI Form(...) depends on python-multipart (import name: multipart).
     # If missing, routes registration will crash at import time; so we fail gracefully.
     if importlib.util.find_spec("multipart") is None:
-        app = FastAPI(title="one_person_dnd")
-
         @app.get("/", response_class=HTMLResponse)
         def _missing_multipart() -> HTMLResponse:
             return HTMLResponse(
@@ -35,7 +36,6 @@ def create_app() -> FastAPI:
 
     paths = ensure_app_dirs()
     init_db(paths.db_path)
-    app = FastAPI(title="one_person_dnd")
     # Delay import to avoid crashing when optional deps are missing.
     from one_person_dnd.web.routes import router
 

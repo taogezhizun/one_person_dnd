@@ -1,10 +1,190 @@
 import json
 import unittest
 
-from one_person_dnd.domain.characters import summarize_character_sheet
+from one_person_dnd.domain.characters import (
+    CharacterSheetValidationError,
+    normalize_generated_character_sheet,
+    summarize_character_sheet,
+)
 
 
 class TestCharacterSummary(unittest.TestCase):
+    def test_generated_character_rejects_invalid_ability_score_values(self) -> None:
+        for invalid_value in ("+2", True, 14.5, 0, 31):
+            with self.subTest(invalid_value=invalid_value):
+                with self.assertRaisesRegex(
+                    CharacterSheetValidationError,
+                    "DEX 必须是 1-30 的整数",
+                ):
+                    normalize_generated_character_sheet(
+                        {
+                            "party": [
+                                {
+                                    "name": "艾拉",
+                                    "level": 1,
+                                    "abilities": {
+                                        "STR": 10,
+                                        "DEX": invalid_value,
+                                        "CON": 10,
+                                        "INT": 10,
+                                        "WIS": 10,
+                                        "CHA": 10,
+                                    },
+                                    "skill_proficiencies": [],
+                                }
+                            ]
+                        }
+                    )
+
+    def test_generated_character_requires_all_six_ability_scores(self) -> None:
+        with self.assertRaisesRegex(
+            CharacterSheetValidationError,
+            "缺少 canonical 属性：CHA",
+        ):
+            normalize_generated_character_sheet(
+                {
+                    "party": [
+                        {
+                            "name": "艾拉",
+                            "level": 1,
+                            "abilities": {
+                                "STR": 10,
+                                "DEX": 14,
+                                "CON": 12,
+                                "INT": 11,
+                                "WIS": 13,
+                            },
+                            "skill_proficiencies": [],
+                        }
+                    ]
+                }
+            )
+
+    def test_generated_character_rejects_invalid_level_values(self) -> None:
+        for invalid_value in ("+2", True, 3.5, 0, 21):
+            with self.subTest(invalid_value=invalid_value):
+                with self.assertRaisesRegex(
+                    CharacterSheetValidationError,
+                    "level 必须是 1-20 的整数",
+                ):
+                    normalize_generated_character_sheet(
+                        {
+                            "party": [
+                                {
+                                    "name": "艾拉",
+                                    "level": invalid_value,
+                                    "abilities": {
+                                        "STR": 10,
+                                        "DEX": 10,
+                                        "CON": 10,
+                                        "INT": 10,
+                                        "WIS": 10,
+                                        "CHA": 10,
+                                    },
+                                    "skill_proficiencies": [],
+                                }
+                            ]
+                        }
+                    )
+
+    def test_generated_character_requires_level(self) -> None:
+        with self.assertRaisesRegex(
+            CharacterSheetValidationError,
+            "必须提供 level",
+        ):
+            normalize_generated_character_sheet(
+                {
+                    "party": [
+                        {
+                            "name": "艾拉",
+                            "abilities": {
+                                "STR": 10,
+                                "DEX": 10,
+                                "CON": 10,
+                                "INT": 10,
+                                "WIS": 10,
+                                "CHA": 10,
+                            },
+                            "skill_proficiencies": [],
+                        }
+                    ]
+                }
+            )
+
+    def test_generated_character_rejects_unknown_skill_proficiencies(self) -> None:
+        with self.assertRaisesRegex(
+            CharacterSheetValidationError,
+            "未知技能.*NotASkill",
+        ):
+            normalize_generated_character_sheet(
+                {
+                    "party": [
+                        {
+                            "name": "艾拉",
+                            "level": 1,
+                            "abilities": {
+                                "STR": 10,
+                                "DEX": 10,
+                                "CON": 10,
+                                "INT": 10,
+                                "WIS": 10,
+                                "CHA": 10,
+                            },
+                            "skill_proficiencies": ["Perception", "NotASkill"],
+                        }
+                    ]
+                }
+            )
+
+    def test_generated_character_requires_skill_proficiencies_field(self) -> None:
+        with self.assertRaisesRegex(
+            CharacterSheetValidationError,
+            "必须提供 skill_proficiencies",
+        ):
+            normalize_generated_character_sheet(
+                {
+                    "party": [
+                        {
+                            "name": "艾拉",
+                            "level": 1,
+                            "abilities": {
+                                "STR": 10,
+                                "DEX": 10,
+                                "CON": 10,
+                                "INT": 10,
+                                "WIS": 10,
+                                "CHA": 10,
+                            },
+                        }
+                    ]
+                }
+            )
+
+    def test_generated_character_rejects_invalid_skill_proficiency_container(self) -> None:
+        with self.assertRaisesRegex(
+            CharacterSheetValidationError,
+            "skill_proficiencies 必须是数组或逗号分隔字符串",
+        ):
+            normalize_generated_character_sheet(
+                {
+                    "party": [
+                        {
+                            "name": "艾拉",
+                            "level": 1,
+                            "abilities": {
+                                "STR": 10,
+                                "DEX": 10,
+                                "CON": 10,
+                                "INT": 10,
+                                "WIS": 10,
+                                "CHA": 10,
+                            },
+                            "skill_proficiencies": {"Perception": True},
+                        }
+                    ]
+                }
+            )
+
     def test_summarizes_party_member_for_prompt(self) -> None:
         sheet = {
             "party": [

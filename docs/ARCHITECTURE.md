@@ -66,13 +66,14 @@ Persistence: src/one_person_dnd/db/
 
 Startup sequence:
 
-1. Parse optional `--host`, `--port`, and `--no-browser` overrides.
+1. Parse optional `--host`, `--port`, `--no-browser`, and `--allow-non-loopback` overrides.
 2. Resolve project-local paths through `paths.ensure_app_dirs()`.
 3. Read `[server]` from `api_config.ini`, with defaults if missing.
-4. Create the FastAPI app via `web.app.create_app()`.
-5. Initialize SQLite with `db.init_db()`.
-6. Include all routers and mount `/static`.
-7. Optionally open the browser and run Uvicorn.
+4. Reject a non-loopback effective host unless `--allow-non-loopback` was explicitly supplied.
+5. Create the FastAPI app via `web.app.create_app()`.
+6. Initialize SQLite with `db.init_db()`.
+7. Include all routers, install the central unsafe-write protection middleware, and mount `/static`.
+8. Optionally open the browser and run Uvicorn.
 
 If `python-multipart` is missing, `create_app()` returns a minimal page explaining the missing dependency instead of crashing during route registration.
 
@@ -86,7 +87,7 @@ The project intentionally keeps runtime files under the repository root so a who
 
 ## Data Model
 
-Schema version is `10` in `src/one_person_dnd/db/schema.py`.
+Schema version is `11` in `src/one_person_dnd/db/schema.py`.
 
 | Table | Purpose |
 | --- | --- |
@@ -95,7 +96,7 @@ Schema version is `10` in `src/one_person_dnd/db/schema.py`.
 | `world_bible_entries` | Campaign-scoped world facts: locations, NPCs, organizations, rules. |
 | `story_journal_entries` | Session-scoped memory suggestions from DM output. |
 | `turn_logs` | Player input, raw DM output, dice events, turn index, optional `attempt_id`, and the frozen adjudication JSON copied into the narrative snapshot. |
-| `adjudication_records` | Pre-LLM immutable adjudication ledger, unique by `(session_id, attempt_id)` and linked to a completed turn after raw persistence. |
+| `adjudication_records` | Pre-LLM immutable adjudication ledger, unique by `(session_id, attempt_id)`, with an expiring generation claim and a link to the completed turn after raw persistence. |
 | `plot_threads` | Open/closed quest or plot threads for continuity. |
 | `session_summaries` | Deterministic chapter and campaign rollups from story journal entries. |
 | `character_sheets` | Authoritative JSON character/party state per session; parsed into a prompt-readable `CharacterSummary`. |
@@ -136,7 +137,9 @@ flowchart TD
   B --> C["Commit frozen adjudication record"]
   C --> D{"Completed attempt?"}
   D -->|Yes| K["Replay stored turn"]
-  D -->|No| E["ContextCuratorAgent / ContextPack"]
+  D -->|No| L{"Claim generation lease"}
+  L -->|Held by peer| D
+  L -->|Acquired| E["ContextCuratorAgent / ContextPack"]
   E --> F["DungeonMasterAgent"]
   F --> G["DeepSeek/OpenAI-compatible chat completion"]
   G --> H["ContinuityCritic + ResponseEvaluator"]
@@ -153,7 +156,7 @@ Prompt context combines:
 - Current scene, session title, pinned world notes, authoritative character sheet summary, session state, cheat directive, dice results, action assessment, and optional turn context.
 - Recent player/assistant turns, controlled by `[memory].history_turns_for_prompt`.
 
-Both `POST /game/turn` and `POST /game/turn/stream` enter `TurnPipeline.prepare_turn()`. It gives a missing legacy caller a server attempt id, calls the single public `ActionAdjudicator.adjudicate()` interface, and commits the immutable record before context assembly or any LLM request. A matching completed attempt returns its stored turn without calling the LLM; an incomplete retry reuses the same ability/DC/dice/result. `prepare_messages()` remains only a compatibility projection. Non-streaming can do one delimiter repair and then one playability repair; streaming keeps its SSE no-second-repair invariant and hands final text to `persist_dm_output()`. Raw turn insertion and ledger completion are committed together, so `(session_id, attempt_id)` cannot produce a second turn.
+Both `POST /game/turn` and `POST /game/turn/stream` enter `TurnPipeline.prepare_turn()`. It gives a missing legacy caller a server attempt id, calls the single public `ActionAdjudicator.adjudicate()` interface, and commits the immutable record before context assembly or any LLM request. A matching completed attempt returns its stored turn without calling the LLM; an incomplete retry reuses the same ability/DC/dice/result. Before prompt construction, `prepare_turn()` atomically claims the unfinished attempt; a concurrent duplicate waits for completion and replays, or returns a typed busy outcome after the bounded wait without reaching the LLM. The production client exposes its configured request timeout, and the lease is sized to cover transport retries plus the protocol-repair call instead of using a fixed duration shorter than a valid generation. Claims still expire after a crash, can be renewed during a long SSE stream, and are explicitly released after generation failure. SQLite lock/busy failures at ledger and claim boundaries become typed `AdjudicationStoreBusy` outcomes before another LLM call. `prepare_messages()` remains only a compatibility projection. Non-streaming can do one delimiter repair and then one playability repair; streaming keeps its SSE no-second-repair invariant and hands final text to `persist_dm_output()`. Raw turn insertion and ledger completion are committed together and clear the claim, so `(session_id, attempt_id)` cannot produce a second turn.
 
 `web.turn_presenter.TurnPresenter` is the Web presentation boundary after persistence. It converts stored history and fresh `TurnResult` values into the same canonical turn dictionary, including parsed DM sections, dice events, action assessment, critic/response warnings, and pending-review state. `game.py` passes that shape to the server partial or SSE final event instead of maintaining three serializers. DOM rendering is still split between Jinja history/partials and the browser streaming renderer; replacing the latter with a server-generated canonical final partial is a future simplification, not a second turn pipeline.
 
@@ -179,7 +182,7 @@ DM choices are rendered as `data-choice-action` buttons in both server-rendered 
 
 The main game UI is intentionally play-first rather than admin-first. The home page leads with the current story and keeps `/new` as a clear secondary action. Empty sessions show the player action composer before empty history; sessions with turns show story first and keep a compact composer close at hand. Desktop uses a two-column story-plus-adventure layout with a centered maximum content width of about 2160px and a roughly 400px sidebar, verified at 1280×720, 1920×1080, and 2560×1440. The game shell fills the remaining viewport below navigation; story history and the adventure panel scroll independently. The draggable separator stores sidebar width per session in `localStorage`; the story-height handle stores the scroll window height and shares the reset action. Long history cannot push the composer out of reach. No third persistent column, mobile-specific redesign, or light theme is part of this UI contract. Action input, quick roll, and the latest-choice “action deck” stay together below the story. If the campaign has no WorldBible entries and the session has no pinned world notes, `/game` shows a lightweight world setup reminder with links to `/new` and `/memory/world/new`; choosing to continue blank stores a per-session skip flag in `app_settings`. Newly generated turns show action assessment and dice under the player action; the World tab shows WorldBible summaries, pinned notes, and recalled context. Critic and response-evaluator output stays in the System tab's diagnostic area. Pending state/thread review appears only when there is something to approve. The adventure panel remains split into Character, World, Threads, and System tabs, keeping character state first and technical controls out of the reading flow.
 
-SQLite connections enable foreign keys, WAL, `synchronous = NORMAL`, and a 5-second busy timeout in `db/conn.py`. The timeout lets brief local write contention settle instead of surfacing an immediate lock error; it does not replace short transactions. The base template configures HTMX for same-origin requests and disables response script tags and expression evaluation. The default loopback listener remains the primary network boundary.
+SQLite connections enable foreign keys, WAL, `synchronous = NORMAL`, and a 5-second busy timeout in `db/conn.py`. The timeout lets brief local write contention settle instead of surfacing an immediate lock error; it does not replace short transactions. The base template configures HTMX for same-origin requests and disables response script tags and expression evaluation. `web.security.UnsafeWriteProtectionMiddleware` rejects unsafe browser requests when `Origin` does not match the request origin or `Sec-Fetch-Site` is `cross-site`; headerless local clients remain compatible. The launcher requires `--allow-non-loopback` before accepting a non-loopback listener. These checks are defense in depth, not user authentication.
 
 `/new` has two model-assisted stages. `POST /new/propose` turns a free-form brief into an editable adventure name, first chapter title, premise, and preferences. `POST /new/generate` produces the readable world and character preview. Neither stage mutates the active save. `POST /new/apply` creates a new campaign and first session in one transaction, writes the approved WorldBible entries and character sheet into that new scope, and then selects it. The previously active campaign/session remains intact.
 

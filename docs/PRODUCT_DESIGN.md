@@ -138,7 +138,7 @@ Round 3 完成后停止本轮优化，不继续迭代视觉细节。
 1. 以服务器 partial 作为 SSE final 的唯一 DOM 来源，删除浏览器重复 renderer。
 2. 增加可审计的 retry/edit/branch 变体，而不是覆盖旧 DM 输出。
 3. 提供正式的 SQLite online backup、`quick_check` 和 campaign 导出。
-4. 为远程模型调用显示清晰的隐私状态；为非 loopback 部署增加 Origin/CSRF 防护。
+4. 为远程模型调用显示清晰的隐私状态；如需正式支持非 loopback 部署，再增加认证边界，不能把现有 Origin/Fetch Metadata 防护当作登录认证。
 5. 在固定连续性回归集证明收益后，再考虑 entity/location 召回和结构化 provider capability。
 
 明确不做：战术地图、实时多人、市场、完整 5e 数据库、微服务拆分、第三常驻栏、无限视觉打磨。

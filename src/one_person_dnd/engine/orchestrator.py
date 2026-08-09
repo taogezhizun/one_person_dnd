@@ -75,7 +75,7 @@ def ensure_dm_protocol_output(
         last = client.chat(messages + [ChatMessage(role="user", content=repair)])
         if _has_required_protocol_delims(last):
             return last, True
-    return last, True
+    return last, False
 
 
 def chat_dm_with_protocol_retry(client, messages: list[ChatMessage], *, max_retries: int = 1) -> tuple[str, bool]:

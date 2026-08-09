@@ -25,11 +25,6 @@ Outcome = Literal["success", "failure"]
 
 _MANUAL_ROLL_RE = re.compile(r"(?i)\b(\d{0,3}d\d{1,4}(?:[+-]\d{1,5})?)\b")
 _UNSUPPORTED_MARKERS = (
-    "攻击",
-    "战斗",
-    "射击",
-    "挥砍",
-    "施法",
     "豁免",
     "攻击检定",
     "伤害",
@@ -39,9 +34,7 @@ _UNSUPPORTED_MARKERS = (
     "躲避火球",
     "抵抗毒素",
     "死亡豁免",
-    "attack",
     "saving throw",
-    "combat",
 )
 
 # A rule is selected only for a concrete, uncertain attempt.  Ordinary movement,
@@ -83,6 +76,12 @@ class AdjudicationStoreBusy(RuntimeError):
 
 class AdjudicationStoreCorrupt(RuntimeError):
     pass
+
+
+def _is_sqlite_busy_error(exc: BaseException) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and any(
+        marker in str(exc).casefold() for marker in ("locked", "busy")
+    )
 
 
 class D20Roller(Protocol):
@@ -645,11 +644,16 @@ class ActionAdjudicator:
             return self._memory_records.get((session_id, attempt_id))
         from one_person_dnd.db.repos import adjudication_records
 
-        row = adjudication_records.get_by_attempt(
-            self._conn,
-            session_id=session_id,
-            attempt_id=attempt_id,
-        )
+        try:
+            row = adjudication_records.get_by_attempt(
+                self._conn,
+                session_id=session_id,
+                attempt_id=attempt_id,
+            )
+        except sqlite3.OperationalError as exc:
+            if _is_sqlite_busy_error(exc):
+                raise AdjudicationStoreBusy("裁决记录暂时无法从 SQLite 读取") from exc
+            raise
         if not row:
             return None
         try:
@@ -683,7 +687,7 @@ class ActionAdjudicator:
                     raise AttemptConflict("同一 attempt_id 已被另一条行动占用")
                 return winner
             except sqlite3.OperationalError as exc:
-                if "locked" in str(exc).casefold() or "busy" in str(exc).casefold():
+                if _is_sqlite_busy_error(exc):
                     raise AdjudicationStoreBusy("裁决记录暂时无法写入 SQLite") from exc
                 raise
         if self._conn is None:

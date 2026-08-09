@@ -30,6 +30,14 @@ Override port:
 python -m one_person_dnd --port 8010 --no-browser
 ```
 
+The launcher rejects non-loopback listeners by default. To expose the app deliberately on a trusted network:
+
+```bash
+python -m one_person_dnd --host 0.0.0.0 --allow-non-loopback --no-browser
+```
+
+This exposes saves and model configuration to the network. The app rejects cross-site browser writes using `Origin` and `Sec-Fetch-Site`, but it has no login boundary; use separate access control for any untrusted network.
+
 ## Configure LLM
 
 Recommended path:

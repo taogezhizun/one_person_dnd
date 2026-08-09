@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi import HTTPException
+
 from one_person_dnd.config import load_app_state
 from one_person_dnd.db.conn import get_connection
 from one_person_dnd.db.repos import campaigns, character_sheets, sessions, world_bible
@@ -30,8 +32,15 @@ class _GeneratedAdventureClient:
                             "name": "阿洛",
                             "race": "人类",
                             "class": "游侠",
-                            "level": "3",
-                            "abilities": {"STR": 12, "DEX": 15, "WIS": 14},
+                            "level": 3,
+                            "abilities": {
+                                "STR": 12,
+                                "DEX": 15,
+                                "CON": 10,
+                                "INT": 10,
+                                "WIS": 14,
+                                "CHA": 10,
+                            },
                             "skill_proficiencies": ["Perception", "Stealth", "Perception"],
                         }
                     ],
@@ -89,7 +98,24 @@ class TestNewAdventureRoutes(unittest.TestCase):
                     "tags": "钟楼,潮汐",
                 }
             ],
-            "character_sheet": {"party": [{"name": "新角色", "hp": 10}]},
+            "character_sheet": {
+                "party": [
+                    {
+                        "name": "新角色",
+                        "hp": 10,
+                        "level": 1,
+                        "abilities": {
+                            "STR": 10,
+                            "DEX": 10,
+                            "CON": 10,
+                            "INT": 10,
+                            "WIS": 10,
+                            "CHA": 10,
+                        },
+                        "skill_proficiencies": [],
+                    }
+                ]
+            },
         }
         try:
             with patch("one_person_dnd.web.routes.new_adventure.ensure_app_dirs", return_value=paths):
@@ -138,6 +164,55 @@ class TestNewAdventureRoutes(unittest.TestCase):
             state = load_app_state(paths.config_path)
             self.assertEqual(state.active_campaign_id, int(new_campaign["id"]))
             self.assertEqual(state.active_session_id, new_session_id)
+        finally:
+            tmp.cleanup()
+
+    def test_apply_rejects_invalid_character_rules_before_creating_campaign(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        root = Path(tmp.name)
+        app_dir = root / ".one_person_dnd"
+        app_dir.mkdir()
+        paths = AppPaths(root, app_dir, root / "api_config.ini", app_dir / "one_person_dnd.sqlite3")
+        init_db(paths.db_path)
+        preview = {
+            "adventure_name": "错误角色",
+            "chapter_title": "第一章",
+            "opening_scene": "城门",
+            "world_bible_entries": [],
+            "character_sheet": {
+                "party": [
+                    {
+                        "name": "艾拉",
+                        "level": 1,
+                        "abilities": {
+                            "STR": 10,
+                            "DEX": "+2",
+                            "CON": 10,
+                            "INT": 10,
+                            "WIS": 10,
+                            "CHA": 10,
+                        },
+                        "skill_proficiencies": ["Perception"],
+                    }
+                ]
+            },
+        }
+        try:
+            with patch("one_person_dnd.web.routes.new_adventure.ensure_app_dirs", return_value=paths):
+                with self.assertRaises(HTTPException) as raised:
+                    new_adventure.new_apply(
+                        preview_json=json.dumps(preview, ensure_ascii=False),
+                        adventure_name="错误角色",
+                        chapter_title="第一章",
+                    )
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("DEX 必须是 1-30 的整数", str(raised.exception.detail))
+            conn = get_connection(paths.db_path)
+            try:
+                self.assertEqual(campaigns.list_campaigns(conn), [])
+            finally:
+                conn.close()
         finally:
             tmp.cleanup()
 

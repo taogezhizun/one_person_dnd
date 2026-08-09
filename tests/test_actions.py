@@ -49,6 +49,25 @@ class TestActionJudgeAgent(unittest.TestCase):
         self.assertEqual(result.action_type, "social")
         self.assertIn("roll_may_be_needed", result.signals)
 
+    def test_active_combat_takes_priority_without_matching_attack_context(self) -> None:
+        cases = (
+            ("我说服守卫后攻击他", "combat"),
+            ("我询问守卫后刺向哥布林", "combat"),
+            ("我挥剑砍哥布林", "combat"),
+            ("我拔剑攻击守卫", "combat"),
+            ("我调查那次射击留下的弹孔", "exploration"),
+            ("我用望远镜观察射击留下的弹孔", "exploration"),
+            ("我砍价买下药水", "exploration"),
+            ("I investigate the attack site", "exploration"),
+            ("I attack the goblin", "combat"),
+            ("I strike a deal with the merchant", "exploration"),
+            ("I swing by the tavern", "exploration"),
+            ("I shoot a question at the guard", "exploration"),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(classify_action_text(text), expected)
+
     def test_flags_declared_success_and_npc_outcome_claims(self) -> None:
         action = PlayerAction(
             campaign_id=1,
