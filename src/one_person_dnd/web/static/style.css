@@ -83,14 +83,19 @@ summary:focus-visible,
   scroll-margin-top: 72px;
 }
 .page-game {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
   overflow: hidden;
 }
 .page-game .app-main {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  height: calc(100dvh - 71px);
+  height: auto;
   min-height: 0;
   overflow: hidden;
+  width: 100%;
 }
 .app-main:focus-visible {
   outline: 2px solid var(--parchment);
@@ -106,9 +111,13 @@ summary:focus-visible,
 }
 .header__inner {
   align-items: center;
-  display: flex;
+  display: grid;
   gap: 16px;
-  justify-content: space-between;
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, max-content) minmax(12rem, 1fr);
+  margin: 0 auto;
+  max-width: none;
+  padding: 16px clamp(16px, 2.5vw, 48px);
+  width: 100%;
 }
 .brand {
   align-items: center;
@@ -117,6 +126,7 @@ summary:focus-visible,
   font-size: 1.08rem;
   font-weight: 700;
   gap: 10px;
+  justify-self: start;
   letter-spacing: 0;
 }
 .brand:hover { color: var(--text); text-decoration: none; }
@@ -128,19 +138,13 @@ summary:focus-visible,
   box-shadow: 0 0 0 4px rgba(192, 118, 67, 0.08);
   transform: rotate(45deg);
 }
-.header__nav-row {
-  align-items: center;
-  display: flex;
-  flex: 1 1 auto;
-  gap: 12px;
-  min-width: 0;
-}
 .nav {
   align-items: center;
   display: flex;
-  flex: 1 1 auto;
   gap: 8px;
-  justify-content: flex-end;
+  justify-content: center;
+  justify-self: center;
+  max-width: 100%;
   min-width: 0;
 }
 .nav a,
@@ -174,8 +178,8 @@ summary:focus-visible,
   border-left: 1px solid var(--ledger-line);
   display: inline-flex;
   flex: 0 0 auto;
+  justify-self: end;
   margin: 0;
-  margin-left: auto;
   padding-left: 16px;
 }
 .nav__locale { color: var(--parchment); }
@@ -2134,16 +2138,9 @@ body.chat-history-resizing {
   .grid--game { grid-template-columns: 1fr; }
   .game-layout-resizer { display: none; }
   .sidebar-card { max-height: none; overflow: visible; position: static; }
-  .page-game { overflow: auto; }
+  .page-game { display: block; height: auto; min-height: 100dvh; overflow: auto; }
   .page-game .app-main { display: block; height: auto; overflow: visible; }
   .page-game .sidebar-card { height: auto; overflow: visible; }
-  .header__inner {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .header__nav-row {
-    width: 100%;
-  }
 }
 
 @media (max-width: 1320px) {
@@ -2298,13 +2295,26 @@ body.chat-history-resizing {
   }
 }
 
+@media (max-width: 1023px) {
+  .header__inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 10px;
+  }
+  .nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    width: 100%;
+  }
+}
+
 @media (max-width: 980px) {
   .nav {
     gap: 6px;
     justify-content: flex-start;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: thin;
   }
   .nav a {
     flex: 0 0 auto;
@@ -2388,6 +2398,7 @@ body.chat-history-resizing {
   }
   .header__inner {
     gap: 10px;
+    padding: 12px;
   }
   .nav {
     font-size: 0.95rem;

@@ -13,37 +13,35 @@
     <script src="/static/vendor/marked.min.js"></script>
     <script src="/static/vendor/purify.min.js"></script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23121a26'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='34' font-family='Arial' fill='%237aa2f7'%3Ed%3C/text%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="/static/style.css?v=20260810-locale-nav" />
+    <link rel="stylesheet" href="/static/style.css?v=20260810-wide-header" />
   </head>
   <body class="{% block body_class %}{% endblock %}">
     <a class="skip-link" href="#main-content" data-skip-link>{{ t("app.skip_to_main") }}</a>
     <header class="header">
-      <div class="container header__inner">
+      <div class="header__inner">
         <a class="brand" href="/" translate="no">one_person_dnd</a>
         {% set current_path = request.url.path if request is defined else "" %}
         {% set current_query = request.url.query if request is defined else "" %}
         {% set current_location = current_path ~ (("?" ~ current_query) if current_query else "") %}
-        <div class="header__nav-row">
-          <nav class="nav" aria-label="{{ t('nav.primary') }}">
-            <a href="/game" {% if current_path == "/game" %}aria-current="page"{% endif %}>{{ t("nav.play") }}</a>
-            <a href="/new" {% if current_path.startswith("/new") %}aria-current="page"{% endif %}>{{ t("nav.new_adventure") }}</a>
-            <a href="/saves" {% if current_path.startswith("/saves") %}aria-current="page"{% endif %}>{{ t("nav.adventures") }}</a>
-            <a href="/memory/world" {% if current_path.startswith("/memory/world") %}aria-current="page"{% endif %}>{{ t("nav.world") }}</a>
-            <a href="/threads" {% if current_path.startswith("/threads") %}aria-current="page"{% endif %}>{{ t("nav.plot_threads") }}</a>
-            <a href="/models" {% if current_path.startswith("/models") %}aria-current="page"{% endif %}>{{ t("nav.models") }}</a>
-          </nav>
-          <form class="locale-switch" action="/locale" method="post">
-            <input type="hidden" name="locale" value="{{ other_locale | default('en') }}" />
-            <input type="hidden" name="next_path" value="{{ current_location or '/' }}" />
-            <button
-              class="nav__locale"
-              type="submit"
-              aria-label="{{ t('locale.switch_aria', language=other_locale_label | default('English')) }}"
-            >
-              <span lang="{{ other_locale | default('en') }}" translate="no">{{ other_locale_label | default('English') }}</span>
-            </button>
-          </form>
-        </div>
+        <nav class="nav" aria-label="{{ t('nav.primary') }}">
+          <a href="/game" {% if current_path == "/game" %}aria-current="page"{% endif %}>{{ t("nav.play") }}</a>
+          <a href="/new" {% if current_path.startswith("/new") %}aria-current="page"{% endif %}>{{ t("nav.new_adventure") }}</a>
+          <a href="/saves" {% if current_path.startswith("/saves") %}aria-current="page"{% endif %}>{{ t("nav.adventures") }}</a>
+          <a href="/memory/world" {% if current_path.startswith("/memory/world") %}aria-current="page"{% endif %}>{{ t("nav.world") }}</a>
+          <a href="/threads" {% if current_path.startswith("/threads") %}aria-current="page"{% endif %}>{{ t("nav.plot_threads") }}</a>
+          <a href="/models" {% if current_path.startswith("/models") %}aria-current="page"{% endif %}>{{ t("nav.models") }}</a>
+        </nav>
+        <form class="locale-switch" action="/locale" method="post">
+          <input type="hidden" name="locale" value="{{ other_locale | default('en') }}" />
+          <input type="hidden" name="next_path" value="{{ current_location or '/' }}" />
+          <button
+            class="nav__locale"
+            type="submit"
+            aria-label="{{ t('locale.switch_aria', language=other_locale_label | default('English')) }}"
+          >
+            <span lang="{{ other_locale | default('en') }}" translate="no">{{ other_locale_label | default('English') }}</span>
+          </button>
+        </form>
       </div>
     </header>
     <main id="main-content" class="container app-main" tabindex="-1">

@@ -53,14 +53,15 @@ class TestUITemplates(unittest.TestCase):
         for label in ("Play", "New Adventure", "Adventures", "World", "Plot Threads", "Models"):
             self.assertIn(f">{label}</a>", english)
 
-    def test_locale_switch_is_a_right_edge_header_utility(self) -> None:
+    def test_header_distributes_brand_navigation_and_locale_across_viewport(self) -> None:
         base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         header = base.split('<header class="header">', 1)[1].split("</header>", 1)[0]
         primary_nav = header.split('<nav class="nav"', 1)[1].split("</nav>", 1)[0]
-        self.assertIn('class="header__nav-row"', header)
+        self.assertNotIn("header__nav-row", header)
         self.assertNotIn("locale-switch", primary_nav)
+        self.assertLess(header.index('class="brand"'), header.index('<nav class="nav"'))
         self.assertLess(header.index("</nav>"), header.index('<form class="locale-switch"'))
 
         def declarations(selector: str, source: str = css) -> str:
@@ -68,24 +69,38 @@ class TestUITemplates(unittest.TestCase):
             self.assertIsNotNone(match, f"missing CSS rule: {selector}")
             return match.group(1)
 
-        row_rule = declarations(".header__nav-row")
-        self.assertIn("display: flex;", row_rule)
-        self.assertIn("flex: 1 1 auto;", row_rule)
-        self.assertIn("min-width: 0;", row_rule)
+        header_rule = declarations(".header__inner")
+        self.assertIn("display: grid;", header_rule)
+        self.assertIn(
+            "grid-template-columns: minmax(12rem, 1fr) minmax(0, max-content) minmax(12rem, 1fr);",
+            header_rule,
+        )
+        self.assertIn("max-width: none;", header_rule)
+        self.assertIn("width: 100%;", header_rule)
+
+        nav_rule = declarations(".nav")
+        self.assertIn("justify-self: center;", nav_rule)
 
         utility_rule = declarations(".locale-switch")
         self.assertIn("flex: 0 0 auto;", utility_rule)
-        self.assertIn("margin-left: auto;", utility_rule)
+        self.assertIn("justify-self: end;", utility_rule)
 
         nav_item_rule = declarations(".nav a,\n.nav__locale")
         self.assertIn("min-height: 40px;", nav_item_rule)
         self.assertIn("white-space: nowrap;", nav_item_rule)
 
-        compact_header = css.split("@media (max-width: 900px) {", 1)[1].split(
-            "@media (max-width: 1320px) {", 1
+        self.assertIn("@media (max-width: 1023px) {", css)
+        transition_header = css.split("@media (max-width: 1023px) {", 1)[1].split(
+            "@media (max-width: 980px) {", 1
         )[0]
-        self.assertIn("flex-direction: column;", declarations(".header__inner", compact_header))
-        self.assertIn("width: 100%;", declarations(".header__nav-row", compact_header))
+        self.assertIn(
+            "grid-template-columns: minmax(0, 1fr) auto;",
+            declarations(".header__inner", transition_header),
+        )
+        compact_nav = declarations(".nav", transition_header)
+        self.assertIn("grid-column: 1 / -1;", compact_nav)
+        self.assertIn("width: 100%;", compact_nav)
+        self.assertIn("overflow-x: auto;", compact_nav)
 
     def test_base_uses_local_vendored_scripts(self) -> None:
         base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
@@ -1175,8 +1190,16 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("{% block body_class %}", base)
         self.assertIn("{% block body_class %}page-game{% endblock %}", game)
-        self.assertIn(".page-game .app-main {", css)
-        self.assertIn("height: calc(100dvh - 71px);", css)
+        page_game = re.search(r"\.page-game\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(page_game)
+        self.assertIn("display: flex;", page_game.group(1))
+        self.assertIn("flex-direction: column;", page_game.group(1))
+        self.assertIn("height: 100dvh;", page_game.group(1))
+        app_main = re.search(r"\.page-game \.app-main\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(app_main)
+        self.assertIn("flex: 1 1 auto;", app_main.group(1))
+        self.assertIn("height: auto;", app_main.group(1))
+        self.assertNotIn("height: calc(100dvh - 71px);", css)
         self.assertIn(".page-game .grid--game {", css)
         self.assertIn("flex: 1 1 auto;", css)
         self.assertIn(".page-game .sidebar-card {", css)
