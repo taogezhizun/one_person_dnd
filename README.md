@@ -4,29 +4,22 @@
   <strong>中文</strong> · <a href="README.en.md">English</a>
 </p>
 
-<p align="center"><strong>不用等齐队友，也能开一场 DND。</strong></p>
+<p align="center">
+  <img src="docs/assets/github/social-preview.jpg" width="1280" alt="one_person_dnd：不用等齐队友，也能开一场 DND；封面展示单人冒险界面和已结算的潜行检定">
+</p>
 
 <p align="center">
   <a href="https://github.com/taogezhizun/one_person_dnd/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/taogezhizun/one_person_dnd/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="pyproject.toml"><img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-7aa2f7?logo=python&amp;logoColor=white&amp;labelColor=111820"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-c07643?labelColor=111820"></a>
-  <a href="#本地数据和配置"><img alt="Local-first data" src="https://img.shields.io/badge/Data-local--first-8fd6b4?labelColor=111820"></a>
 </p>
 
 <p align="center">
-  <img src="docs/assets/github/game-hero.jpg" width="1200" alt="one_person_dnd 游戏界面：已结算的潜行检定、DM 叙事、行动建议和角色面板">
+  带上你的角色，说出你想做什么，冒险就从这里开始。AI 来当 DM，角色和存档都留在本地；界面支持中文与 English，切换不会改写已有内容。
 </p>
 
 <p align="center">
-  带上你的角色，说出你想做什么，冒险就从这里开始。AI 来当 DM，角色和存档都留在本地。
-</p>
-
-<p align="center">
-  应用界面支持中文与 English，可从顶部导航随时切换；已有存档、角色与剧情正文保持原样。
-</p>
-
-<p align="center">
-  <a href="#快速开始">90 秒启动</a> · <a href="#为什么值得玩">为什么值得玩</a> · <a href="#从配置到第一回合">回合流程</a>
+  <a href="#快速开始">90 秒启动</a> · <a href="#实机界面">查看实机</a>
 </p>
 
 ## 为什么值得玩
@@ -34,6 +27,12 @@
 - **存档归你**：冒险数据保存在项目内的 SQLite；支持多个存档、快照、恢复和分叉。
 - **裁决先于叙事**：系统先冻结属性、技能、DC、骰面与结果，再交给 DM 讲述；同一技术重试不会重掷。攻击、豁免和完整战斗会明确标记为暂不支持。
 - **DM 提议，你确认**：角色卡和剧情线变化先进入待审队列，只有玩家应用后才改写权威状态。
+
+## 实机界面
+
+<p align="center">
+  <img src="docs/assets/github/game-hero.jpg" width="1200" alt="one_person_dnd 游戏界面：已结算的潜行检定、DM 叙事、行动建议和角色面板">
+</p>
 
 ## 从配置到第一回合
 
