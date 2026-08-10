@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block body_class %}page-game{% endblock %}
-{% block title %}游戏 - one_person_dnd{% endblock %}
+{% block title %}{{ t('game.page.title') }}{% endblock %}
 
 {% block content %}
   {% macro action_composer(campaign_id, session_id, llm_ready=True, show_starter_actions=False, latest_choices=[]) %}
@@ -19,15 +19,15 @@
       <input type="hidden" name="attempt_id" value="" />
       <div class="action-composer__header">
         <div>
-          <div class="action-composer__kicker">玩家回合</div>
-          <div class="action-composer__title">下一步行动</div>
+          <div class="action-composer__kicker">{{ t('game.composer.kicker') }}</div>
+          <div class="action-composer__title">{{ t('game.composer.title') }}</div>
         </div>
-        <div class="action-composer__mark">行动</div>
+        <div class="action-composer__mark">{{ t('game.composer.mark') }}</div>
       </div>
       <div class="latest-choice-tray" data-latest-choices {% if not latest_choices %}hidden{% endif %}>
         <div class="latest-choice-tray__heading">
-          <span>DM 留下的行动灵感</span>
-          <span class="muted">左右浏览 · 点击只填入，你仍可修改</span>
+          <span>{{ t('game.composer.latest_choices') }}</span>
+          <span class="muted">{{ t('game.composer.latest_choices_help') }}</span>
         </div>
         <div class="latest-choice-tray__list" data-latest-choices-list>
           {% for text in latest_choices %}
@@ -36,25 +36,25 @@
         </div>
       </div>
       <label class="label action-composer__field">
-        下一步行动
-        <textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow rows="1" autocomplete="off" placeholder="描述你的行动…"></textarea>
+        {{ t('game.composer.action_label') }}
+        <textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow rows="1" autocomplete="off" placeholder="{{ t('game.composer.action_placeholder') }}"></textarea>
       </label>
       <div class="action-composer__feedback" data-choice-feedback role="status" aria-live="polite" hidden></div>
       <div class="action-composer__context-feedback" data-turn-context-feedback role="status" aria-live="polite" hidden></div>
       {% if not llm_ready %}
         <div class="notice notice--err action-composer__notice">
-          <div class="notice__title">DM 尚未连接</div>
-          <div class="muted">先到 <a href="/models">模型</a> 页面保存并启用一个可用配置，再开始行动。</div>
+          <div class="notice__title">{{ t('game.composer.disconnected') }}</div>
+          <div class="muted">{{ t('game.composer.configure_before') }} <a href="/models">{{ t('game.composer.models') }}</a> {{ t('game.composer.configure_after') }}</div>
           <div class="action-composer__notice-actions">
-            <a class="btn btn--ghost" href="/models">去配置模型</a>
+            <a class="btn btn--ghost" href="/models">{{ t('game.composer.configure') }}</a>
           </div>
         </div>
       {% endif %}
       {% if show_starter_actions and llm_ready %}
-        <div class="starter-actions" aria-label="开场行动">
-          <div class="starter-actions__label">开场行动</div>
+        <div class="starter-actions" aria-label="{{ t('game.starter.aria') }}">
+          <div class="starter-actions__label">{{ t('game.starter.label') }}</div>
           <div class="choices__list starter-actions__list">
-            {% for text in ["观察四周", "检查随身物品", "和最近的人交谈"] %}
+            {% for text in [t('game.starter.observe'), t('game.starter.inventory'), t('game.starter.talk')] %}
               <button type="button" class="choice-action" data-choice-action aria-pressed="false" data-choice-text="{{ text }}">{{ text }}</button>
             {% endfor %}
           </div>
@@ -65,24 +65,24 @@
           class="btn"
           type="submit"
           data-turn-submit
-          data-default-label="发送"
-          data-loading-label="发送中…"
+          data-default-label="{{ t('game.composer.send') }}"
+          data-loading-label="{{ t('game.composer.sending') }}"
           disabled
-        >发送</button>
-        <button class="btn btn--ghost button--initially-hidden" type="button" id="turn-cancel" hidden>取消</button>
-        <span id="turn-loading" class="htmx-indicator spinner" role="status" aria-live="polite">DM 思考中…</span>
-        <span class="composer-kbd-hint muted" aria-hidden="true"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>↵</kbd> 发送</span>
+        >{{ t('game.composer.send') }}</button>
+        <button class="btn btn--ghost button--initially-hidden" type="button" id="turn-cancel" hidden>{{ t('game.composer.cancel') }}</button>
+        <span id="turn-loading" class="htmx-indicator spinner" role="status" aria-live="polite">{{ t('game.composer.thinking') }}</span>
+        <span class="composer-kbd-hint muted" aria-hidden="true"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>↵</kbd> {{ t('game.composer.shortcut') }}</span>
       </div>
 
       <details class="advanced" data-advanced-inputs>
-        <summary>高级选项</summary>
+        <summary>{{ t('game.advanced.title') }}</summary>
         <label class="label">
-          参考标签（帮助 DM 找到相关世界设定，逗号分隔）
-          <input class="input" name="tags" data-turn-lockable autocomplete="off" placeholder="酒馆,盗贼公会,某个角色" />
+          {{ t('game.advanced.tags_label') }}
+          <input class="input" name="tags" data-turn-lockable autocomplete="off" placeholder="{{ t('game.advanced.tags_placeholder') }}" />
         </label>
         <label class="label">
-          本回合额外线索（可选，只影响这次行动）
-          <textarea class="input textarea" name="state_block" data-turn-lockable autocomplete="off" placeholder="例如：我特别留意窗外脚步声，或提醒 DM 上回合的一个细节…"></textarea>
+          {{ t('game.advanced.context_label') }}
+          <textarea class="input textarea" name="state_block" data-turn-lockable autocomplete="off" placeholder="{{ t('game.advanced.context_placeholder') }}"></textarea>
         </label>
       </details>
     </form>
@@ -96,7 +96,7 @@
             {% include "partials/chat_turn.html" %}
           {% endfor %}
         {% else %}
-          <div class="muted">（暂无历史，对话从这里开始）</div>
+          <div class="muted">{{ t('game.history.empty') }}</div>
         {% endif %}
       </div>
       <button
@@ -104,8 +104,8 @@
         type="button"
         role="separator"
         aria-orientation="horizontal"
-        aria-label="调整故事记录高度"
-        title="拖拽调整高度，双击复位"
+        aria-label="{{ t('game.history.resize_aria') }}"
+        title="{{ t('game.history.resize_title') }}"
         data-chat-history-resizer
       ></button>
     </div>
@@ -113,7 +113,7 @@
 
   {% macro quick_roll_panel() %}
     <section class="tool-panel quick-roll-panel">
-      <div class="tool-panel__title">快速掷骰</div>
+      <div class="tool-panel__title">{{ t('game.roll.panel_title') }}</div>
       <form
         class="inline-form"
         hx-post="/game/roll"
@@ -126,14 +126,14 @@
           name="roll_expr_text"
           data-quick-roll-input
           required
-          aria-label="掷骰表达式"
+          aria-label="{{ t('game.roll.input_aria') }}"
           autocomplete="off"
           placeholder="d20 / 1d20+5 / 2d6-1"
         />
-        <button class="btn btn--ghost" type="submit" data-quick-roll-submit disabled>掷骰</button>
-        <span id="quick-roll-loading" class="htmx-indicator spinner" role="status" aria-live="polite">掷骰中…</span>
+        <button class="btn btn--ghost" type="submit" data-quick-roll-submit disabled>{{ t('game.roll.button') }}</button>
+        <span id="quick-roll-loading" class="htmx-indicator spinner" role="status" aria-live="polite">{{ t('game.roll.loading') }}</span>
       </form>
-      <div id="quick-roll-result" class="muted quick-roll-panel__result" role="status" aria-live="polite">（在此显示掷骰结果）</div>
+      <div id="quick-roll-result" class="muted quick-roll-panel__result" role="status" aria-live="polite">{{ t('game.roll.empty') }}</div>
     </section>
   {% endmacro %}
 
@@ -145,48 +145,48 @@
   {% endmacro %}
 
   <div class="page-title-row">
-    <h1 class="page-title-row__title">游玩</h1>
+    <h1 class="page-title-row__title">{{ t('game.page.heading') }}</h1>
     <div class="page-actions">
       <form method="post" action="/saves/session/enter" class="inline-form">
-        <select class="input input--compact" name="session_id" aria-label="切换章节" autocomplete="off">
+        <select class="input input--compact" name="session_id" aria-label="{{ t('game.session.switch_aria') }}" autocomplete="off">
           {% for s in sessions_list %}
             <option value="{{ s.id }}" {% if s.id == session_id %}selected{% endif %}>
               #{{ s.id }} {{ s.title }}
             </option>
           {% endfor %}
         </select>
-        <button class="btn btn--ghost" type="submit">切换章节</button>
+        <button class="btn btn--ghost" type="submit">{{ t('game.session.switch') }}</button>
       </form>
       {% if pending_count and pending_count > 0 %}
         <span class="notice notice--err notice--compact" data-pending-pill>
-          待确认变更：<span data-pending-count>{{ pending_count }}</span>
+          {{ t('game.pending.count') }} <span data-pending-count>{{ pending_count }}</span>
         </span>
       {% else %}
         <span class="notice notice--err notice--compact" data-pending-pill hidden>
-          待确认变更：<span data-pending-count>0</span>
+          {{ t('game.pending.count') }} <span data-pending-count>0</span>
         </span>
       {% endif %}
       <button class="btn btn--ghost" type="button" id="toggle-sidebar-btn" data-sidebar-toggle>
-        收起冒险面板
+        {{ t('game.sidebar.collapse') }}
       </button>
       <button class="btn btn--ghost" type="button" data-game-layout-reset>
-        重置布局
+        {{ t('game.layout.reset') }}
       </button>
     </div>
   </div>
 
   <div class="game-status-strip">
     <div class="status-tile">
-      <div class="status-tile__label">当前冒险</div>
+      <div class="status-tile__label">{{ t('game.status.campaign') }}</div>
       <div class="status-tile__value">{{ campaign_name or ("#" ~ campaign_id) }}</div>
     </div>
     <div class="status-tile">
-      <div class="status-tile__label">当前章节</div>
+      <div class="status-tile__label">{{ t('game.status.session') }}</div>
       <div class="status-tile__value">{{ session_title or ("#" ~ session_id) }}</div>
     </div>
     {% if pending_count and pending_count > 0 %}
       <div class="status-tile">
-        <div class="status-tile__label">待确认变更</div>
+        <div class="status-tile__label">{{ t('game.status.pending') }}</div>
         <div class="status-tile__value" data-pending-count>{{ pending_count }}</div>
       </div>
     {% endif %}
@@ -195,21 +195,21 @@
   {% if world_setup_prompt is defined and world_setup_prompt.show %}
     <section
       class="review-callout world-setup-callout"
-      aria-label="世界观设置提醒"
+      aria-label="{{ t('game.world_setup.aria') }}"
     >
       <div>
-        <div class="review-callout__eyebrow">这局还没有世界观</div>
+        <div class="review-callout__eyebrow">{{ t('game.world_setup.title') }}</div>
         <div class="review-callout__text">
-          当前冒险还没有世界设定，当前章节也没有置顶规则。你可以先补几条关键设定，也可以直接空白开局。
+          {{ t('game.world_setup.body') }}
         </div>
       </div>
       <div class="review-callout__actions world-setup-callout__actions">
-        <a class="btn" href="/new">生成新冒险</a>
-        <a class="btn btn--ghost" href="/memory/world/new">手动写设定</a>
+        <a class="btn" href="/new">{{ t('game.world_setup.generate') }}</a>
+        <a class="btn btn--ghost" href="/memory/world/new">{{ t('game.world_setup.write') }}</a>
         <form method="post" action="/game/world-setup/skip" class="inline-form">
           <input type="hidden" name="campaign_id" value="{{ campaign_id }}" />
           <input type="hidden" name="session_id" value="{{ session_id }}" />
-          <button class="btn btn--ghost" type="submit">继续空白开局</button>
+          <button class="btn btn--ghost" type="submit">{{ t('game.world_setup.skip') }}</button>
         </form>
       </div>
     </section>
@@ -217,31 +217,31 @@
 
   <section
     class="review-callout"
-    aria-label="待审状态和剧情线更新"
+    aria-label="{{ t('game.review.aria') }}"
     aria-live="polite"
     data-review-callout
     {% if not pending_count or pending_count <= 0 %}hidden{% endif %}
   >
     <div>
-      <div class="review-callout__eyebrow">待审状态 / 剧情线更新</div>
+      <div class="review-callout__eyebrow">{{ t('game.review.title') }}</div>
       <div class="review-callout__text" data-review-callout-text>
-        有 {% if pending_count and pending_count > 0 %}{{ pending_count }}{% else %}0{% endif %} 条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。
+        {{ t('game.review.body', count=(pending_count if pending_count and pending_count > 0 else 0)) }}
       </div>
     </div>
     <div class="review-callout__actions">
-      <a class="btn" href="#character-panel">查看待审</a>
+      <a class="btn" href="#character-panel">{{ t('game.review.view') }}</a>
     </div>
   </section>
 
   <div class="grid grid--game {% if turns and turns|length > 0 %}grid--game-story-first{% endif %}" data-game-layout>
     <section class="card chat-card {% if turns and turns|length > 0 %}chat-card--story-first{% endif %}">
-      <div class="card__title">故事对话</div>
+      <div class="card__title">{{ t('game.story.title') }}</div>
 
       {% if turns and turns|length > 0 %}
         <a class="mobile-action-jump" href="#turn-form" data-action-jump>
           <span>
-            下一步行动
-            <span class="mobile-action-jump__meta">跳到输入区</span>
+            {{ t('game.story.next') }}
+            <span class="mobile-action-jump__meta">{{ t('game.story.jump') }}</span>
           </span>
           <span aria-hidden="true">↓</span>
         </a>
@@ -257,14 +257,14 @@
       class="game-layout-resizer"
       role="separator"
       aria-orientation="vertical"
-      aria-label="调整故事对话和冒险面板宽度"
+      aria-label="{{ t('game.layout.resize_aria') }}"
       tabindex="0"
-      title="拖拽调整宽度，双击复位"
+      title="{{ t('game.layout.resize_title') }}"
       data-game-layout-resizer
     ></div>
 
     <aside class="card sidebar-card" id="game-sidebar">
-      <div class="card__title">冒险面板</div>
+      <div class="card__title">{{ t('game.sidebar.title') }}</div>
 
       <div class="panel-tabs">
         <input class="panel-tabs__radio" type="radio" name="adventure-panel-tab" id="panel-tab-character" checked />
@@ -272,24 +272,24 @@
         <input class="panel-tabs__radio" type="radio" name="adventure-panel-tab" id="panel-tab-threads" />
         <input class="panel-tabs__radio" type="radio" name="adventure-panel-tab" id="panel-tab-system" />
 
-        <div class="panel-tabs__list" role="tablist" aria-label="冒险面板分区">
-          <label id="panel-tab-label-character" class="panel-tabs__tab" for="panel-tab-character" role="tab" tabindex="0" aria-selected="true" aria-controls="panel-character" data-panel-tab="panel-tab-character">角色</label>
-          <label id="panel-tab-label-world" class="panel-tabs__tab" for="panel-tab-world" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-world" data-panel-tab="panel-tab-world">世界</label>
-          <label id="panel-tab-label-threads" class="panel-tabs__tab" for="panel-tab-threads" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-threads" data-panel-tab="panel-tab-threads">剧情</label>
-          <label id="panel-tab-label-system" class="panel-tabs__tab" for="panel-tab-system" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-system" data-panel-tab="panel-tab-system">系统</label>
+        <div class="panel-tabs__list" role="tablist" aria-label="{{ t('game.tabs.aria') }}">
+          <label id="panel-tab-label-character" class="panel-tabs__tab" for="panel-tab-character" role="tab" tabindex="0" aria-selected="true" aria-controls="panel-character" data-panel-tab="panel-tab-character">{{ t('game.tabs.character') }}</label>
+          <label id="panel-tab-label-world" class="panel-tabs__tab" for="panel-tab-world" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-world" data-panel-tab="panel-tab-world">{{ t('game.tabs.world') }}</label>
+          <label id="panel-tab-label-threads" class="panel-tabs__tab" for="panel-tab-threads" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-threads" data-panel-tab="panel-tab-threads">{{ t('game.tabs.plot') }}</label>
+          <label id="panel-tab-label-system" class="panel-tabs__tab" for="panel-tab-system" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-system" data-panel-tab="panel-tab-system">{{ t('game.tabs.system') }}</label>
         </div>
 
         <div class="panel-tabs__panels">
           <section id="panel-character" role="tabpanel" aria-labelledby="panel-tab-label-character" class="panel-tabs__panel panel-tabs__panel--character">
             <div class="panel-section panel-section--first">
-              <div class="panel-section__title">角色卡与变更</div>
+              <div class="panel-section__title">{{ t('game.character.title') }}</div>
               <div
                 id="character-panel"
                 hx-get="/character/panel"
                 hx-trigger="load"
                 hx-swap="innerHTML"
               >
-                <div class="muted panel-loading">（加载角色卡中…）</div>
+                <div class="muted panel-loading">{{ t('game.character.loading') }}</div>
               </div>
             </div>
           </section>
@@ -307,32 +307,32 @@
               <input type="hidden" name="session_id" value="{{ session_id }}" />
 
               <div class="panel-section panel-section--first">
-                <div class="panel-section__title">场景与世界</div>
+                <div class="panel-section__title">{{ t('game.world.section') }}</div>
                 <label class="label">
-                  当前场景
-                  <input class="input" name="current_scene" value="{{ current_scene }}" autocomplete="off" placeholder="例如：乌鸦酒馆二楼客房" />
+                  {{ t('game.world.scene') }}
+                  <input class="input" name="current_scene" value="{{ current_scene }}" autocomplete="off" placeholder="{{ t('game.world.scene_placeholder') }}" />
                 </label>
 
                 <label class="label">
-                  临时状态备注（补充角色卡之外的状态）
-                  <textarea class="input textarea" name="session_state" autocomplete="off" placeholder="例如：正在潜行、带着诅咒、某个人物正在同行……">{{ session_state }}</textarea>
+                  {{ t('game.world.state') }}
+                  <textarea class="input textarea" name="session_state" autocomplete="off" placeholder="{{ t('game.world.state_placeholder') }}">{{ session_state }}</textarea>
                 </label>
 
                 <label class="label">
-                  置顶世界设定（硬规则 / 重要人物 / 关键地点）
-                  <textarea class="input textarea" name="pinned_world_notes" autocomplete="off" placeholder="世界硬规则/重要关系/禁忌…">{{ pinned_world_notes }}</textarea>
+                  {{ t('game.world.pinned') }}
+                  <textarea class="input textarea" name="pinned_world_notes" autocomplete="off" placeholder="{{ t('game.world.pinned_placeholder') }}">{{ pinned_world_notes }}</textarea>
                 </label>
 
                 {% set world_entries = world_bible_entries|default([]) %}
                 <div class="world-bible-summary" data-world-bible-summary>
                   <div class="world-bible-summary__head">
                     <div>
-                      <div class="panel-section__title">世界设定</div>
-                      <div class="muted">当前冒险已保存的世界规则、地点、人物和势力。</div>
+                      <div class="panel-section__title">{{ t('game.world.bible_title') }}</div>
+                      <div class="muted">{{ t('game.world.bible_body') }}</div>
                     </div>
                     <div class="world-bible-summary__actions">
-                      <a class="btn btn--ghost" href="/memory/world">管理全部</a>
-                      <a class="btn btn--ghost" href="/memory/world/new">新增条目</a>
+                      <a class="btn btn--ghost" href="/memory/world">{{ t('game.world.manage') }}</a>
+                      <a class="btn btn--ghost" href="/memory/world/new">{{ t('game.world.add') }}</a>
                     </div>
                   </div>
 
@@ -354,18 +354,18 @@
                       {% endfor %}
                     </div>
                   {% else %}
-                    <div class="muted">（暂无世界设定。可以先生成新冒险，或手动新增。）</div>
+                    <div class="muted">{{ t('game.world.empty') }}</div>
                   {% endif %}
                 </div>
                 <div class="recall-preview-shell">
-                  <div class="muted recall-preview-title">本回合参考</div>
-                  <div id="recall-preview" class="muted">（发送一次行动后显示 DM 使用的角色、世界、剧情线、故事记忆、掷骰和行动判定）</div>
+                  <div class="muted recall-preview-title">{{ t('game.recall.title') }}</div>
+                  <div id="recall-preview" class="muted">{{ t('game.recall.initial') }}</div>
                 </div>
               </div>
 
               <div class="row">
-                <button class="btn" type="submit">保存</button>
-                <span id="sidebar-saving" class="htmx-indicator spinner" role="status" aria-live="polite">保存中…</span>
+                <button class="btn" type="submit">{{ t('game.save.button') }}</button>
+                <span id="sidebar-saving" class="htmx-indicator spinner" role="status" aria-live="polite">{{ t('game.save.loading') }}</span>
               </div>
               <div id="sidebar-save-result" role="status" aria-live="polite"></div>
             </form>
@@ -373,58 +373,58 @@
 
           <section id="panel-threads" role="tabpanel" aria-labelledby="panel-tab-label-threads" class="panel-tabs__panel panel-tabs__panel--threads">
             <div class="panel-section panel-section--first">
-              <div class="panel-section__title">当前剧情线</div>
+              <div class="panel-section__title">{{ t('game.threads.current') }}</div>
               {% if open_threads and open_threads|length > 0 %}
                 <div class="thread-stack">
-                  {% for t in open_threads %}
+                  {% for thread in open_threads %}
                     <article class="thread-mini">
                       <div class="thread-mini__head">
-                        <div class="thread-mini__title">#{{ t.id }} {{ t.title }}</div>
-                        <span class="thread-mini__priority">P{{ t.priority or 0 }}</span>
+                        <div class="thread-mini__title">#{{ thread.id }} {{ thread.title }}</div>
+                        <span class="thread-mini__priority">P{{ thread.priority or 0 }}</span>
                       </div>
-                      {% if t.summary %}
-                        <div class="muted thread-mini__text">{{ t.summary }}</div>
+                      {% if thread.summary %}
+                        <div class="muted thread-mini__text">{{ thread.summary }}</div>
                       {% endif %}
-                      {% if t.next_step %}
-                        <div class="thread-mini__next">下一步：{{ t.next_step }}</div>
+                      {% if thread.next_step %}
+                        <div class="thread-mini__next">{{ t('game.threads.next', next_step=thread.next_step) }}</div>
                       {% endif %}
-                      {% if t.tags %}
-                        <div class="muted thread-mini__tags">{{ t.tags }}</div>
+                      {% if thread.tags %}
+                        <div class="muted thread-mini__tags">{{ thread.tags }}</div>
                       {% endif %}
                     </article>
                   {% endfor %}
                 </div>
               {% else %}
-                <div class="muted">（暂无进行中的剧情线）</div>
+                <div class="muted">{{ t('game.threads.empty') }}</div>
               {% endif %}
             </div>
 
             <div class="panel-section">
-              <div class="panel-section__title">剧情与章节</div>
+              <div class="panel-section__title">{{ t('game.threads.section') }}</div>
               <div class="kv">
-                <div class="kv__k">冒险</div><div class="kv__v">{{ campaign_id }}{% if campaign_name %}（{{ campaign_name }}）{% endif %}</div>
-                <div class="kv__k">章节</div><div class="kv__v">{{ session_id }}{% if session_title %}（{{ session_title }}）{% endif %}</div>
+                <div class="kv__k">{{ t('game.threads.campaign') }}</div><div class="kv__v">{% if campaign_name %}{{ t('game.threads.named', id=campaign_id, name=campaign_name) }}{% else %}{{ campaign_id }}{% endif %}</div>
+                <div class="kv__k">{{ t('game.threads.session') }}</div><div class="kv__v">{% if session_title %}{{ t('game.threads.named', id=session_id, name=session_title) }}{% else %}{{ session_id }}{% endif %}</div>
               </div>
               <div class="row">
-                <a class="btn btn--ghost" href="/threads">剧情线</a>
-                <a class="btn btn--ghost" href="/saves">管理冒险</a>
+                <a class="btn btn--ghost" href="/threads">{{ t('game.threads.link') }}</a>
+                <a class="btn btn--ghost" href="/saves">{{ t('game.threads.manage') }}</a>
               </div>
             </div>
           </section>
 
           <section id="panel-system" role="tabpanel" aria-labelledby="panel-tab-label-system" class="panel-tabs__panel panel-tabs__panel--system">
             <div class="panel-section panel-section--first">
-              <div class="panel-section__title">回合诊断</div>
-              <div class="muted">可玩性与协议检查集中在这里，不打断故事阅读。</div>
+              <div class="panel-section__title">{{ t('game.diagnostics.title') }}</div>
+              <div class="muted">{{ t('game.diagnostics.body') }}</div>
               <div id="system-diagnostics" class="system-diagnostics" aria-live="polite">
                 {% for turn in turns|reverse %}
                   {% include "partials/turn_diagnostics.html" %}
                 {% endfor %}
-                <div class="muted system-diagnostics__empty">目前没有需要查看的诊断。</div>
+                <div class="muted system-diagnostics__empty">{{ t('game.diagnostics.empty') }}</div>
               </div>
             </div>
             <details class="advanced system-tools" data-system-tools open>
-              <summary>系统与高级工具</summary>
+              <summary>{{ t('game.system.tools') }}</summary>
               <form
                 class="form"
                 hx-post="/cheats/save"
@@ -435,20 +435,20 @@
                 <input type="hidden" name="session_id" value="{{ session_id }}" />
                 <label class="label row check-row">
                   <input type="checkbox" name="enabled" value="1" {% if cheat_enabled %}checked{% endif %} />
-                  启用金手指系统提示词
+                  {{ t('game.system.cheat_enable') }}
                 </label>
                 <label class="label">
-                  系统提示词（仅当前章节生效）
+                  {{ t('game.system.cheat_label') }}
                   <textarea
                     class="input textarea"
                     name="cheat_prompt"
                     autocomplete="off"
-                    placeholder="例如：允许玩家在剧情关键节点触发一次‘命运改写’，并优先提供非致死解法。"
+                    placeholder="{{ t('game.system.cheat_placeholder') }}"
                   >{{ cheat_prompt }}</textarea>
                 </label>
                 <div class="row">
-                  <button class="btn" type="submit">保存金手指设置</button>
-                  <span id="cheat-saving" class="htmx-indicator spinner" role="status" aria-live="polite">保存中…</span>
+                  <button class="btn" type="submit">{{ t('game.system.cheat_save') }}</button>
+                  <span id="cheat-saving" class="htmx-indicator spinner" role="status" aria-live="polite">{{ t('game.save.loading') }}</span>
                 </div>
                 <div id="cheat-save-result" role="status" aria-live="polite"></div>
               </form>

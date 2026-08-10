@@ -1,5 +1,5 @@
 {% if ok %}
-  <div class="notice notice--ok">连接成功：{{ message }}</div>
+  <div class="notice notice--ok">{{ t('models.test.success', message=message) }}</div>
 {% else %}
-  <div class="notice notice--err">连接失败：{{ message }}</div>
+  <div class="notice notice--err">{{ t('models.test.failure', message=message) }}</div>
 {% endif %}

@@ -4,8 +4,20 @@ from urllib.parse import urlsplit
 
 from starlette.responses import PlainTextResponse
 
+from one_person_dnd.web.localization import Localizer
+
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+
+def _rejected_response(scope) -> PlainTextResponse:
+    candidate = scope.get("state", {}).get("ui")
+    ui = candidate if isinstance(candidate, Localizer) else Localizer()
+    return PlainTextResponse(
+        ui("errors.cross_site_write"),
+        status_code=403,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _origin_parts(value: str) -> tuple[str, str, int] | None:
@@ -35,11 +47,7 @@ class UnsafeWriteProtectionMiddleware:
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         fetch_site = headers.get(b"sec-fetch-site", b"").decode("latin-1").strip().casefold()
         if fetch_site == "cross-site":
-            response = PlainTextResponse(
-                "Cross-site write request rejected.",
-                status_code=403,
-                headers={"Cache-Control": "no-store"},
-            )
+            response = _rejected_response(scope)
             await response(scope, receive, send)
             return
 
@@ -51,11 +59,7 @@ class UnsafeWriteProtectionMiddleware:
                 f"{scope.get('scheme', 'http')}://{raw_host.decode('latin-1') if raw_host else ''}"
             )
             if origin is None or origin != request_origin:
-                response = PlainTextResponse(
-                    "Cross-site write request rejected.",
-                    status_code=403,
-                    headers={"Cache-Control": "no-store"},
-                )
+                response = _rejected_response(scope)
                 await response(scope, receive, send)
                 return
 

@@ -1,27 +1,62 @@
-# one_person_dnd
+<h1 align="center">one_person_dnd</h1>
 
-中文 | [English](README.en.md)
+<p align="center">
+  <strong>中文</strong> · <a href="README.en.md">English</a>
+</p>
 
-`one_person_dnd` 是一个本地运行的单人 TRPG / DND Web 应用。你在浏览器里描述行动，LLM 扮演 DM 讲述剧情、给出可选行动，并把冒险、章节、世界设定、角色卡、剧情线和回合记录保存到本地 SQLite。
+<p align="center"><strong>不用等齐队友，也能开一场 DND。</strong></p>
 
-这个项目适合用来跑个人文字冒险、测试 LLM 叙事流程，或者作为“本地优先的单人 DND 桌面 Web 工具”继续改造。
+<p align="center">
+  <a href="https://github.com/taogezhizun/one_person_dnd/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/taogezhizun/one_person_dnd/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="pyproject.toml"><img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-7aa2f7?logo=python&amp;logoColor=white&amp;labelColor=111820"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-c07643?labelColor=111820"></a>
+  <a href="#本地数据和配置"><img alt="Local-first data" src="https://img.shields.io/badge/Data-local--first-8fd6b4?labelColor=111820"></a>
+</p>
 
-## 你可以用它做什么
+<p align="center">
+  <img src="docs/assets/github/game-hero.jpg" width="1200" alt="one_person_dnd 游戏界面：已结算的潜行检定、DM 叙事、行动建议和角色面板">
+</p>
 
-- 创建多个冒险和章节，保留不同存档、快照、恢复点和分支；恢复旧快照前会自动留下安全备份。
-- 用 DeepSeek 或 OpenAI-compatible 模型作为 DM。
-- 通过“新冒险”向导自由描述构想，或让模型先提议一套可编辑方案，再生成初始世界设定和角色卡。
-- 在 `/game` 页面持续游玩：阅读故事、输入行动、点击 DM 给出的可选行动、快速掷骰。
-- 对有失败意义的探索/社交行动做可解释的属性检定：角色属性、技能熟练、DC 和优劣势会在 DM 叙事前结算并显示。
-- 维护世界设定、剧情线、角色状态、物品、HP、金币和备注。
-- 审查 DM 建议的角色卡变更和剧情线更新，确认后才写入存档。
-- 查看“本回合参考”，理解 DM 这次参考了哪些角色、世界、剧情、掷骰和行动判定信息。
+<p align="center">
+  带上你的角色，说出你想做什么，冒险就从这里开始。AI 来当 DM，角色和存档都留在本地。
+</p>
+
+<p align="center">
+  应用界面支持中文与 English，可从顶部导航随时切换；已有存档、角色与剧情正文保持原样。
+</p>
+
+<p align="center">
+  <a href="#快速开始">90 秒启动</a> · <a href="#为什么值得玩">为什么值得玩</a> · <a href="#从配置到第一回合">回合流程</a>
+</p>
+
+## 为什么值得玩
+
+- **存档归你**：冒险数据保存在项目内的 SQLite；支持多个存档、快照、恢复和分叉。
+- **裁决先于叙事**：系统先冻结属性、技能、DC、骰面与结果，再交给 DM 讲述；同一技术重试不会重掷。攻击、豁免和完整战斗会明确标记为暂不支持。
+- **DM 提议，你确认**：角色卡和剧情线变化先进入待审队列，只有玩家应用后才改写权威状态。
+
+## 从配置到第一回合
+
+首次只需完成前两步；之后每次行动都沿用同一条可追溯流程。
+
+```mermaid
+flowchart LR
+    A["1. 配置模型"] --> B["2. 创建冒险"]
+    B --> C["3. 输入行动"]
+    C --> D["4. 冻结检定"]
+    D --> E["5. DM 叙事"]
+    E --> F["6. 本地保存"]
+```
 
 ## 快速开始
 
 要求：Python 3.12。
 
 ```bash
+git clone https://github.com/taogezhizun/one_person_dnd.git
+cd one_person_dnd
+python3.12 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .
@@ -55,6 +90,8 @@ python -m one_person_dnd --host 0.0.0.0 --allow-non-loopback --no-browser
 非 loopback 模式会把本地存档和模型配置页面暴露给网络；内置同源写请求防护不能替代登录认证，只应在可信网络或另有访问控制时使用。
 
 ## 第一次游玩
+
+需要英文界面时，点击顶部导航中的 `English`；语言偏好会保存在本地 Cookie 中。
 
 1. 打开 `/models`，配置一个模型。
    - 页面会先列出已有配置；没有可用配置时，展开“添加模型”。

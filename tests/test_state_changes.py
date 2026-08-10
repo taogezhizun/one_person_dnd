@@ -2,6 +2,7 @@ import json
 import unittest
 
 from one_person_dnd.domain.state_changes import merge_state_delta, preview_state_delta
+from one_person_dnd.web.localization import Localizer
 
 
 class TestStateChanges(unittest.TestCase):
@@ -56,6 +57,26 @@ class TestStateChanges(unittest.TestCase):
         self.assertIn("金币：15 -> 18", preview.lines)
         self.assertIn("物品：短弓 -> 短弓、银钥匙", preview.lines)
 
+    def test_preview_localizes_fixed_text_without_translating_character_values(self) -> None:
+        base = {"party": [{"name": "艾拉", "hp": 8, "gold": 15, "inventory": ["短弓"]}]}
+        delta = {"party": [{"hp": 6, "gold": 18, "inventory": ["短弓", "银钥匙"]}]}
+
+        preview = preview_state_delta(
+            json.dumps(base, ensure_ascii=False),
+            json.dumps(delta, ensure_ascii=False),
+            translator=Localizer("en"),
+        )
+
+        self.assertEqual(preview.summary, "Character state will be updated")
+        self.assertEqual(
+            preview.lines,
+            [
+                "HP: 8 → 6",
+                "Gold: 15 → 18",
+                "Inventory: 短弓 → 短弓, 银钥匙",
+            ],
+        )
+
     def test_preview_reports_invalid_delta(self) -> None:
         preview = preview_state_delta("{}", "{not json")
 
@@ -63,6 +84,23 @@ class TestStateChanges(unittest.TestCase):
         self.assertEqual(preview.summary, "无法预览变更")
         self.assertTrue(preview.lines)
         self.assertIn("JSON", preview.lines[0])
+
+    def test_preview_localizes_invalid_delta_without_leaking_parser_detail(self) -> None:
+        preview = preview_state_delta("{}", "{not json", translator=Localizer("en"))
+
+        self.assertFalse(preview.ok)
+        self.assertEqual(preview.summary, "Unable to preview the character change")
+        self.assertEqual(preview.lines, ["The proposed character change is invalid."])
+
+    def test_preview_localizes_unrecognized_field_labels_and_separator(self) -> None:
+        preview = preview_state_delta(
+            "{}",
+            '{"custom_note":"玩家原文","mood":"警惕"}',
+            translator=Localizer("en"),
+        )
+
+        self.assertEqual(preview.summary, "Unrecognized character fields will be changed")
+        self.assertEqual(preview.lines, ["JSON fields: custom_note, mood"])
 
     def test_merge_scalar_list_shrinks_to_remove_item(self) -> None:
         base = {"inventory": ["剑", "盾", "药水"]}

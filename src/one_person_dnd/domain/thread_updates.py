@@ -5,12 +5,21 @@ import sqlite3
 from typing import Any
 
 from one_person_dnd.db.repos import plot_threads
-from one_person_dnd.domain.state_changes import StateChangePreview
+from one_person_dnd.domain.state_changes import PreviewTranslator, StateChangePreview
 from one_person_dnd.engine.guardrails import GuardrailError
 
 
 _ALLOWED_STATUS = {"open", "closed"}
 _UPDATE_FIELDS = ("title", "status", "priority", "summary", "next_step", "tags")
+
+
+def _message(
+    translator: PreviewTranslator | None,
+    key: str,
+    fallback: str,
+    **values: object,
+) -> str:
+    return fallback if translator is None else translator(key, **values)
 
 
 def _text(value: Any) -> str:
@@ -78,37 +87,145 @@ def validate_thread_updates_json(delta_json_text: str) -> list[dict[str, Any]]:
     return _load_updates(delta_json_text)
 
 
-def preview_thread_updates_json(delta_json_text: str) -> StateChangePreview:
+def preview_thread_updates_json(
+    delta_json_text: str,
+    *,
+    translator: PreviewTranslator | None = None,
+) -> StateChangePreview:
     try:
         updates = _load_updates(delta_json_text)
     except GuardrailError as exc:
-        return StateChangePreview(ok=False, summary="无法预览剧情线更新", lines=[str(exc)])
+        return StateChangePreview(
+            ok=False,
+            summary=_message(
+                translator,
+                "preview.thread.invalid_summary",
+                "无法预览剧情线更新",
+            ),
+            lines=[
+                str(exc)
+                if translator is None
+                else translator("preview.thread.invalid_detail")
+            ],
+        )
 
     lines: list[str] = []
     for update in updates:
         if "id" in update:
             parts: list[str] = []
             if update.get("title"):
-                parts.append(f"标题：{update['title']}")
+                parts.append(
+                    _message(
+                        translator,
+                        "preview.thread.title",
+                        f"标题：{update['title']}",
+                        value=update["title"],
+                    )
+                )
             if "summary" in update:
-                parts.append(update["summary"] or "清空概要")
+                if update["summary"]:
+                    parts.append(
+                        _message(
+                            translator,
+                            "preview.thread.summary_value",
+                            update["summary"],
+                            value=update["summary"],
+                        )
+                    )
+                else:
+                    parts.append(
+                        _message(
+                            translator,
+                            "preview.thread.clear_summary",
+                            "清空概要",
+                        )
+                    )
             if "next_step" in update:
-                parts.append(f"下一步：{update['next_step'] or '清空'}")
+                next_step = update["next_step"] or _message(
+                    translator,
+                    "preview.value.clear",
+                    "清空",
+                )
+                parts.append(
+                    _message(
+                        translator,
+                        "preview.thread.next_step",
+                        f"下一步：{next_step}",
+                        value=next_step,
+                    )
+                )
             if "status" in update:
-                parts.append("状态：" + ("进行中" if update["status"] == "open" else "已关闭"))
+                status = _message(
+                    translator,
+                    "preview.thread.status.open"
+                    if update["status"] == "open"
+                    else "preview.thread.status.closed",
+                    "进行中" if update["status"] == "open" else "已关闭",
+                )
+                parts.append(
+                    _message(
+                        translator,
+                        "preview.thread.status",
+                        f"状态：{status}",
+                        value=status,
+                    )
+                )
             if "priority" in update:
-                parts.append(f"优先级：{update['priority']}")
+                parts.append(
+                    _message(
+                        translator,
+                        "preview.thread.priority",
+                        f"优先级：{update['priority']}",
+                        value=update["priority"],
+                    )
+                )
             if "tags" in update:
-                parts.append(f"标签：{update['tags'] or '清空'}")
-            lines.append(f"#{update['id']} 更新：" + "；".join(parts))
+                tags = update["tags"] or _message(
+                    translator,
+                    "preview.value.clear",
+                    "清空",
+                )
+                parts.append(
+                    _message(
+                        translator,
+                        "preview.thread.tags",
+                        f"标签：{tags}",
+                        value=tags,
+                    )
+                )
+            part_separator = _message(translator, "preview.separator.parts", "；")
+            joined_parts = part_separator.join(parts)
+            lines.append(
+                _message(
+                    translator,
+                    "preview.thread.update",
+                    f"#{update['id']} 更新：{joined_parts}",
+                    id=update["id"],
+                    parts=joined_parts,
+                )
+            )
         else:
             priority = int(update.get("priority") or 0)
             tags = update.get("tags") or ""
             suffix_parts = [f"P{priority}"]
             if tags:
                 suffix_parts.append(tags)
-            lines.append(f"新建：{update['title']}（{'，'.join(suffix_parts)}）")
-    return StateChangePreview(ok=True, summary="将更新剧情线", lines=lines)
+            suffix_separator = _message(translator, "preview.separator.suffix", "，")
+            suffix = suffix_separator.join(suffix_parts)
+            lines.append(
+                _message(
+                    translator,
+                    "preview.thread.create",
+                    f"新建：{update['title']}（{suffix}）",
+                    title=update["title"],
+                    suffix=suffix,
+                )
+            )
+    return StateChangePreview(
+        ok=True,
+        summary=_message(translator, "preview.thread.summary", "将更新剧情线"),
+        lines=lines,
+    )
 
 
 def apply_thread_updates_json(

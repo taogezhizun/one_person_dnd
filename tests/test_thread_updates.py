@@ -13,6 +13,7 @@ from one_person_dnd.domain.thread_updates import (
     validate_thread_updates_json,
 )
 from one_person_dnd.engine.guardrails import GuardrailError
+from one_person_dnd.web.localization import Localizer
 
 
 class TestThreadUpdates(unittest.TestCase):
@@ -63,6 +64,36 @@ class TestThreadUpdates(unittest.TestCase):
         self.assertEqual(preview.summary, "将更新剧情线")
         self.assertIn("#7 更新：学徒最后出现在乌鸦酒馆。；下一步：询问老板娘。", preview.lines)
         self.assertIn("新建：查明银钥匙来历（P2，支线,钥匙）", preview.lines)
+
+    def test_preview_localizes_fixed_text_without_translating_thread_values(self) -> None:
+        payload = {
+            "updates": [
+                {
+                    "id": 7,
+                    "title": "寻找失踪的学徒",
+                    "summary": "线索仍在乌鸦酒馆。",
+                    "next_step": "询问老板娘。",
+                    "status": "closed",
+                    "priority": 3,
+                    "tags": "主线,学徒",
+                },
+                {"title": "查明银钥匙来历", "priority": 2, "tags": "支线,钥匙"},
+            ]
+        }
+
+        preview = preview_thread_updates_json(
+            json.dumps(payload, ensure_ascii=False),
+            translator=Localizer("en"),
+        )
+
+        self.assertEqual(preview.summary, "Plot threads will be updated")
+        self.assertEqual(
+            preview.lines,
+            [
+                "#7 Update: Title: 寻找失踪的学徒; Summary: 线索仍在乌鸦酒馆。; Next step: 询问老板娘。; Status: Closed; Priority: 3; Tags: 主线,学徒",
+                "Create: 查明银钥匙来历 (P2, 支线,钥匙)",
+            ],
+        )
 
     def test_apply_thread_updates_updates_existing_and_creates_new_thread(self) -> None:
         tmp, conn, _campaign_id, session_id = self._conn()
@@ -119,3 +150,13 @@ class TestThreadUpdates(unittest.TestCase):
         self.assertFalse(preview.ok)
         self.assertEqual(preview.summary, "无法预览剧情线更新")
         self.assertIn("status 必须是 open 或 closed", preview.lines[0])
+
+    def test_preview_localizes_guardrail_error_without_leaking_detail(self) -> None:
+        preview = preview_thread_updates_json(
+            '{"updates":[{"title":"玩家标题","status":"paused"}]}',
+            translator=Localizer("en"),
+        )
+
+        self.assertFalse(preview.ok)
+        self.assertEqual(preview.summary, "Unable to preview plot thread updates")
+        self.assertEqual(preview.lines, ["The proposed plot thread update is invalid."])

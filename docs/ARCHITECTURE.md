@@ -9,7 +9,11 @@ Browser
   |
 FastAPI app: src/one_person_dnd/web/app.py
   |
+Localization: src/one_person_dnd/web/localization/
+  |-- request-scoped zh-CN/en catalog, cookie binding, Jinja/JS adapters
+  |
 Routes: src/one_person_dnd/web/routes/
+  |-- locale.py         interface language cookie and safe redirect
   |-- saves.py          campaigns, sessions, snapshots, fork/restore
   |-- models.py         LLM profiles and active model selection
   |-- setup.py          legacy api_config.ini LLM setup
@@ -72,10 +76,16 @@ Startup sequence:
 4. Reject a non-loopback effective host unless `--allow-non-loopback` was explicitly supplied.
 5. Create the FastAPI app via `web.app.create_app()`.
 6. Initialize SQLite with `db.init_db()`.
-7. Include all routers, install the central unsafe-write protection middleware, and mount `/static`.
+7. Include all routers, install request-scoped localization and central unsafe-write protection middleware, and mount `/static`.
 8. Optionally open the browser and run Uvicorn.
 
 If `python-multipart` is missing, `create_app()` returns a minimal page explaining the missing dependency instead of crashing during route registration.
+
+## Interface Localization
+
+`web.localization.LocaleMiddleware` resolves one immutable `Localizer` for the complete HTTP response lifetime, including HTMX partials and SSE streams. The current page locale header wins over the `opd_locale` cookie so a second browser tab cannot change the language of an in-flight partial; invalid or missing values fall back to `zh-CN`. Jinja receives `t()`, locale metadata, localized diagnostic maps, and the browser catalog through a context processor. Browser-only text uses the same catalog through `window.DndI18n.t()`.
+
+Catalog entries use stable semantic keys and store the Chinese/English pair together. Startup validation rejects mismatched interpolation placeholders. Locale never enters `TurnPresenter`, the adjudication fingerprint, SQLite, player input, or AI narration: those values are presented exactly as stored. Prompt-only structural prefixes in `ContextPack.recalled_context` carry separate locale-neutral `preview_data`; `web.recalled_context_presenter` projects scene, character, world, plot, story-memory, and adjudication metadata for the current response without rewriting the prompt preview. `POST /locale` accepts only supported locales, validates the local redirect target, writes an HttpOnly `SameSite=Lax` cookie, and reloads the whole page to prevent mixed-language DOM state.
 
 ## Runtime Files
 
@@ -240,6 +250,7 @@ Rollup is deterministic in `orchestrator._maybe_rollup_summaries()`:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/` | Home page with active campaign/session and config status. |
+| `POST` | `/locale` | Set the local interface-language cookie and safely return to the current page. |
 | `GET` | `/saves` | Campaign, session, snapshot, restore, and fork UI. |
 | `POST` | `/saves/*` | Campaign/session create, select, enter, snapshot, restore, fork. |
 | `GET` | `/models` | LLM profile management. |

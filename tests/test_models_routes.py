@@ -90,11 +90,12 @@ class TestModelsRoutes(unittest.TestCase):
 
             self.assertTrue(context["created"])
             template = Path("src/one_person_dnd/web/templates/models.html").read_text(encoding="utf-8")
-            self.assertIn("模型配置已保存，建议先测试连接", template)
-            self.assertIn("保存成功不代表模型服务已经连通", template)
+            self.assertIn("models.created.title", template)
+            self.assertIn("models.created.body", template)
             self.assertIn("#model-profile-{{ active_id }}", template)
-            self.assertIn(">去测试连接</a>", template)
-            self.assertIn('href="/new">创建新冒险', template)
+            self.assertIn("models.test_connection_cta", template)
+            self.assertIn('href="/new"', template)
+            self.assertIn("models.create_new_adventure", template)
         finally:
             tmp.cleanup()
 
@@ -143,12 +144,12 @@ class TestModelsRoutes(unittest.TestCase):
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("model-quickstart", template)
-        self.assertIn("DeepSeek 快速开始", template)
+        self.assertIn("models.quickstart.title", template)
         self.assertIn('name="provider" value="deepseek"', template)
         self.assertIn('name="base_url" value="https://api.deepseek.com/v1"', template)
         self.assertIn('name="model" value="deepseek-chat"', template)
         self.assertIn('name="timeout_seconds" value="60.0"', template)
-        self.assertLess(template.index("已有模型"), template.index("添加模型"))
-        self.assertLess(template.index("DeepSeek 快速开始"), template.index("连接其他兼容服务"))
+        self.assertLess(template.index("models.existing.title"), template.index("models.add.summary"))
+        self.assertLess(template.index("models.quickstart.title"), template.index("models.custom.summary"))
         self.assertIn(".model-quickstart", css)
         self.assertIn(".model-quickstart__grid", css)

@@ -13,6 +13,7 @@ class ContextBlock:
     content: str
     source: str
     priority: int = 0
+    preview_data: dict[str, object] | None = None
 
 
 @dataclass(frozen=True)

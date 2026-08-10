@@ -1,80 +1,80 @@
 {% extends "base.html" %}
 
-{% block title %}新建设定 - one_person_dnd{% endblock %}
+{% block title %}{{ t('world.new.page_title') }} - one_person_dnd{% endblock %}
 
 {% block content %}
   <div class="page-title-row">
     <div>
-      <div class="page-hero__eyebrow">给世界增加一个锚点</div>
-      <h1 class="page-title-row__title">添加世界设定</h1>
+      <div class="page-hero__eyebrow">{{ t('world.new.eyebrow') }}</div>
+      <h1 class="page-title-row__title">{{ t('world.new.heading') }}</h1>
     </div>
-    <a class="btn btn--ghost" href="/memory/world">返回世界设定</a>
+    <a class="btn btn--ghost" href="/memory/world">{{ t('world.new.back') }}</a>
   </div>
-  <div class="muted">标签可以写地点名、人物名、势力名或场景关键词，帮助 DM 在需要时找到它。</div>
+  <div class="muted">{{ t('world.new.tags_hint') }}</div>
 
   <form class="form" method="post" action="/memory/world/new">
     <label class="label">
-      类型
+      {{ t('world.new.type') }}
       <select class="input" name="type" id="type">
-        <option value="Location">地点</option>
-        <option value="NPC">人物</option>
-        <option value="Organization">势力</option>
-        <option value="Rule">规则或禁忌</option>
-        <option value="Other">其他</option>
+        <option value="Location">{{ t('world.type.location') }}</option>
+        <option value="NPC">{{ t('world.type.npc') }}</option>
+        <option value="Organization">{{ t('world.type.organization') }}</option>
+        <option value="Rule">{{ t('world.type.rule_or_taboo') }}</option>
+        <option value="Other">{{ t('world.type.other') }}</option>
       </select>
     </label>
 
     <label class="label">
-      标题
-      <input class="input" name="title" required placeholder="例如：乌鸦酒馆 / 银刃盗贼团 / 维拉牧师" />
+      {{ t('world.new.title') }}
+      <input class="input" name="title" required placeholder="{{ t('world.new.title_placeholder') }}" />
     </label>
 
     <label class="label">
-      标签（逗号分隔）
-      <input class="input" name="tags" placeholder="乌鸦酒馆,港口区,线索A" />
+      {{ t('world.new.tags') }}
+      <input class="input" name="tags" placeholder="{{ t('world.new.tags_placeholder') }}" />
     </label>
 
     <div class="card card--spaced">
-      <div class="card__title">填写你关心的细节</div>
+      <div class="card__title">{{ t('world.new.details_heading') }}</div>
 
       <div data-section="Location">
-        <label class="label">地理 <input class="input" name="location_geo" /></label>
-        <label class="label">势力 <input class="input" name="location_factions" /></label>
-        <label class="label">资源 <input class="input" name="location_resources" /></label>
-        <label class="label">危险 <input class="input" name="location_dangers" /></label>
-        <label class="label">关键地点 <input class="input" name="location_points" /></label>
+        <label class="label">{{ t('world.field.location_geo') }} <input class="input" name="location_geo" /></label>
+        <label class="label">{{ t('world.field.location_factions') }} <input class="input" name="location_factions" /></label>
+        <label class="label">{{ t('world.field.resources') }} <input class="input" name="location_resources" /></label>
+        <label class="label">{{ t('world.field.dangers') }} <input class="input" name="location_dangers" /></label>
+        <label class="label">{{ t('world.field.key_locations') }} <input class="input" name="location_points" /></label>
       </div>
 
       <div data-section="NPC" hidden>
-        <label class="label">外观 <input class="input" name="npc_appearance" /></label>
-        <label class="label">动机 <input class="input" name="npc_motivation" /></label>
-        <label class="label">秘密 <input class="input" name="npc_secret" /></label>
-        <label class="label">关系 <input class="input" name="npc_relations" /></label>
-        <label class="label">战斗倾向 <input class="input" name="npc_combat" /></label>
+        <label class="label">{{ t('world.field.appearance') }} <input class="input" name="npc_appearance" /></label>
+        <label class="label">{{ t('world.field.motivation') }} <input class="input" name="npc_motivation" /></label>
+        <label class="label">{{ t('world.field.secret') }} <input class="input" name="npc_secret" /></label>
+        <label class="label">{{ t('world.field.relationships') }} <input class="input" name="npc_relations" /></label>
+        <label class="label">{{ t('world.field.combat_tendency') }} <input class="input" name="npc_combat" /></label>
       </div>
 
       <div data-section="Organization" hidden>
-        <label class="label">目标 <input class="input" name="org_goal" /></label>
-        <label class="label">资源 <input class="input" name="org_resources" /></label>
-        <label class="label">敌对 <input class="input" name="org_enemies" /></label>
-        <label class="label">影响范围 <input class="input" name="org_influence" /></label>
+        <label class="label">{{ t('world.field.goal') }} <input class="input" name="org_goal" /></label>
+        <label class="label">{{ t('world.field.resources') }} <input class="input" name="org_resources" /></label>
+        <label class="label">{{ t('world.field.enemies') }} <input class="input" name="org_enemies" /></label>
+        <label class="label">{{ t('world.field.influence') }} <input class="input" name="org_influence" /></label>
       </div>
 
       <div data-section="Rule" hidden>
-        <label class="label">硬约束 <input class="input" name="rule_hard_constraints" /></label>
-        <label class="label">魔法规则 <input class="input" name="rule_magic" /></label>
-        <label class="label">禁忌 <input class="input" name="rule_taboos" /></label>
+        <label class="label">{{ t('world.field.hard_constraints') }} <input class="input" name="rule_hard_constraints" /></label>
+        <label class="label">{{ t('world.field.magic_rules') }} <input class="input" name="rule_magic" /></label>
+        <label class="label">{{ t('world.field.taboos') }} <input class="input" name="rule_taboos" /></label>
       </div>
     </div>
 
     <label class="label">
-      自由补充（可选）
-      <textarea class="input textarea" name="content_free" placeholder="任何补充说明……"></textarea>
+      {{ t('world.new.freeform') }}
+      <textarea class="input textarea" name="content_free" placeholder="{{ t('world.new.freeform_placeholder') }}"></textarea>
     </label>
 
     <div class="row">
-      <button class="btn" type="submit">保存</button>
-      <a class="btn btn--ghost" href="/memory/world">返回</a>
+      <button class="btn" type="submit">{{ t('world.new.save') }}</button>
+      <a class="btn btn--ghost" href="/memory/world">{{ t('world.new.back_short') }}</a>
     </div>
   </form>
 

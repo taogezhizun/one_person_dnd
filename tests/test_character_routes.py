@@ -1,12 +1,14 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from one_person_dnd.db.conn import get_connection
 from one_person_dnd.db.repos import campaigns, character_sheets, plot_threads, sessions, state_change_requests
 from one_person_dnd.db.schema import init_db
 from one_person_dnd.paths import AppPaths
+from one_person_dnd.web.localization import Localizer
 from one_person_dnd.web.routes import character
 
 
@@ -110,6 +112,48 @@ class TestCharacterRoutes(unittest.TestCase):
             self.assertTrue(preview.ok)
             self.assertEqual(preview.summary, "将更新剧情线")
             self.assertIn("新建：查明银钥匙来历（P2，支线,钥匙）", preview.lines)
+        finally:
+            tmp.cleanup()
+
+    def test_character_panel_localizes_previews_without_translating_player_values(self) -> None:
+        tmp, paths, session_id = self._paths_with_sheet()
+        conn = get_connection(paths.db_path)
+        try:
+            state_change_requests.create_request(
+                conn,
+                session_id=session_id,
+                turn_index=5,
+                kind="state_delta",
+                delta_json_text='{"party":[{"inventory":["短弓","银钥匙"]}]}',
+            )
+            state_change_requests.create_request(
+                conn,
+                session_id=session_id,
+                turn_index=6,
+                kind="thread_updates",
+                delta_json_text='{"updates":[{"title":"查明银钥匙来历","priority":2,"tags":"支线,钥匙"}]}',
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        request = SimpleNamespace(state=SimpleNamespace(ui=Localizer("en")))
+        try:
+            with (
+                patch("one_person_dnd.web.routes.character.ensure_app_dirs", return_value=paths),
+                patch("one_person_dnd.web.routes.character.templates.TemplateResponse") as template_response,
+            ):
+                template_response.side_effect = lambda *, request, name, context: context
+                context = character._render_panel(request=request, session_id=session_id)
+
+            previews = {item["kind"]: item["preview"] for item in context["pending_changes"]}
+            self.assertEqual(previews["state_delta"].summary, "Character state will be updated")
+            self.assertIn("Inventory: 短弓 → 短弓, 银钥匙", previews["state_delta"].lines)
+            self.assertEqual(previews["thread_updates"].summary, "Plot threads will be updated")
+            self.assertIn(
+                "Create: 查明银钥匙来历 (P2, 支线,钥匙)",
+                previews["thread_updates"].lines,
+            )
         finally:
             tmp.cleanup()
 

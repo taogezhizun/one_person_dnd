@@ -1,58 +1,58 @@
 {% extends "base.html" %}
 
-{% block title %}创建新冒险 - one_person_dnd{% endblock %}
+{% block title %}{{ t('new.page.title') }}{% endblock %}
 
 {% block content %}
   {% set values = form_values %}
   <header class="page-hero page-hero--compact">
-    <div class="page-hero__eyebrow">从一张空白地图开始</div>
-    <h1>创建新冒险</h1>
-    <p class="page-hero__lede">说出你想玩的故事，或让模型先给你一套可修改的灵感。确认前不会改动现有冒险。</p>
+    <div class="page-hero__eyebrow">{{ t('new.eyebrow') }}</div>
+    <h1>{{ t('new.heading') }}</h1>
+    <p class="page-hero__lede">{{ t('new.lede') }}</p>
   </header>
 
   {% if not llm_ready %}
     <div class="notice notice--err notice--spaced" role="status">
-      <div class="notice__title">模型尚未就绪</div>
-      <div class="muted">先选择一个可用模型，回来后再生成冒险。</div>
+      <div class="notice__title">{{ t('new.model_not_ready.title') }}</div>
+      <div class="muted">{{ t('new.model_not_ready.body') }}</div>
       <div class="new-adventure__notice-actions">
-        <a class="btn btn--ghost" href="/models">去配置模型</a>
+        <a class="btn btn--ghost" href="/models">{{ t('new.model_not_ready.cta') }}</a>
       </div>
     </div>
   {% endif %}
 
   {% if error %}
     <div class="notice notice--err notice--spaced" role="alert">
-      <div class="notice__title">这次没有生成成功</div>
+      <div class="notice__title">{{ t('new.failure.title') }}</div>
       <div class="muted">{{ error }}</div>
     </div>
   {% endif %}
 
   <div class="new-adventure-layout">
     <section class="card new-adventure-form-card">
-      <div class="card__title">你的冒险构想</div>
+      <div class="card__title">{{ t('new.idea.title') }}</div>
       <form class="form" method="post" action="/new/generate" data-long-submit>
         <label class="label" for="adventure-brief">
-          先说说你想玩什么
+          {{ t('new.brief.label') }}
         </label>
         <textarea
           id="adventure-brief"
           class="input textarea textarea--brief"
           name="adventure_brief"
           autocomplete="off"
-          placeholder="例如：我想扮演一名失去记忆的守灯人，在被潮汐吞没的群岛追查一艘幽灵船……"
+          placeholder="{{ t('new.brief.placeholder') }}"
         >{{ values.adventure_brief }}</textarea>
 
         {% if proposal is defined and proposal %}
           <section class="proposal-sheet" aria-labelledby="proposal-title">
-            <div class="proposal-sheet__eyebrow">模型给出的可编辑提案</div>
-            <div id="proposal-title" class="proposal-sheet__title">在生成完整设定前，再改一次方向</div>
+            <div class="proposal-sheet__eyebrow">{{ t('new.proposal.eyebrow') }}</div>
+            <div id="proposal-title" class="proposal-sheet__title">{{ t('new.proposal.title') }}</div>
             <div class="field-grid field-grid--two">
               <label class="label" for="proposed-adventure-name">
-                冒险名称
+                {{ t('new.field.adventure_name') }}
                 <input id="proposed-adventure-name" class="input" name="proposed_adventure_name" value="{{ proposal.adventure_name }}" autocomplete="off" />
               </label>
               <label class="label" for="proposed-chapter-title">
-                第一章标题
+                {{ t('new.field.chapter_title') }}
                 <input id="proposed-chapter-title" class="input" name="proposed_chapter_title" value="{{ proposal.chapter_title }}" autocomplete="off" />
               </label>
             </div>
@@ -63,35 +63,35 @@
         {% endif %}
 
         <details class="advanced new-adventure-options" {% if proposal is defined and proposal %}open{% endif %}>
-          <summary>调整故事偏好</summary>
+          <summary>{{ t('new.preferences.summary') }}</summary>
           <div class="form advanced__body">
             <div class="field-grid field-grid--three">
               <label class="label" for="adventure-genre">
-                故事风格
+                {{ t('new.field.genre') }}
                 <input id="adventure-genre" class="input" name="genre" value="{{ values.genre }}" autocomplete="off" />
               </label>
               <label class="label" for="adventure-tone">
-                故事基调
+                {{ t('new.field.tone') }}
                 <input id="adventure-tone" class="input" name="tone" value="{{ values.tone }}" autocomplete="off" />
               </label>
               <label class="label" for="adventure-tech-level">
-                时代与科技
+                {{ t('new.field.tech_level') }}
                 <input id="adventure-tech-level" class="input" name="tech_level" value="{{ values.tech_level }}" autocomplete="off" />
               </label>
             </div>
             <div class="field-grid field-grid--two">
               <label class="label" for="adventure-themes">
-                想探索的主题
+                {{ t('new.field.themes') }}
                 <input id="adventure-themes" class="input" name="themes" value="{{ values.themes }}" autocomplete="off" />
               </label>
               <label class="label" for="adventure-character-count">
-                同行角色数量
+                {{ t('new.field.character_count') }}
                 <input id="adventure-character-count" class="input" type="number" name="character_count" value="{{ values.character_count }}" min="1" max="4" autocomplete="off" />
               </label>
             </div>
             <label class="label" for="adventure-constraints">
-              必须遵守的设定
-              <textarea id="adventure-constraints" class="input textarea" name="extra_constraints" autocomplete="off" placeholder="例如：世界里不能复活；主角必须是半精灵游侠；开局在雪国小镇……">{{ values.extra_constraints }}</textarea>
+              {{ t('new.field.constraints') }}
+              <textarea id="adventure-constraints" class="input textarea" name="extra_constraints" autocomplete="off" placeholder="{{ t('new.constraints.placeholder') }}">{{ values.extra_constraints }}</textarea>
             </label>
           </div>
         </details>
@@ -101,30 +101,30 @@
             class="btn"
             type="submit"
             data-long-submit-button
-            data-long-submit-label="正在铺开世界……"
+            data-long-submit-label="{{ t('new.action.generating') }}"
             {% if not llm_ready %}disabled{% endif %}
-          >生成完整冒险</button>
+          >{{ t('new.action.generate') }}</button>
           <button
             class="btn btn--ghost"
             type="submit"
             formaction="/new/propose"
             data-long-submit-button
-            data-long-submit-label="正在构思……"
+            data-long-submit-label="{{ t('new.action.proposing') }}"
             {% if not llm_ready %}disabled{% endif %}
-          >帮我想一套</button>
-          <span class="form-status spinner" data-long-submit-status role="status" aria-live="polite" hidden>模型正在构思，请稍候……</span>
+          >{{ t('new.action.propose') }}</button>
+          <span class="form-status spinner" data-long-submit-status role="status" aria-live="polite" hidden>{{ t('new.action.waiting') }}</span>
         </div>
       </form>
     </section>
 
-    <aside class="new-adventure-assurance" aria-label="创建说明">
+    <aside class="new-adventure-assurance" aria-label="{{ t('new.assurance.aria') }}">
       <div class="new-adventure-assurance__mark" aria-hidden="true">Ⅰ</div>
-      <h2>一份独立的新存档</h2>
-      <p>模型会先生成世界设定、角色与开场。你确认采用后，系统才会创建一个新的冒险和第一章。</p>
+      <h2>{{ t('new.assurance.title') }}</h2>
+      <p>{{ t('new.assurance.body') }}</p>
       <ul class="plain-list">
-        <li>现有冒险保持原样</li>
-        <li>生成结果先以易读方式预览</li>
-        <li>名称和第一章标题可再次修改</li>
+        <li>{{ t('new.assurance.existing_unchanged') }}</li>
+        <li>{{ t('new.assurance.preview_first') }}</li>
+        <li>{{ t('new.assurance.names_editable') }}</li>
       </ul>
     </aside>
   </div>

@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}模型配置已迁移 - one_person_dnd{% endblock %}
+{% block title %}{{ t('models.setup.page_title') }}{% endblock %}
 
 {% block content %}
   <section class="card">
-    <div class="card__title">模型配置已经合并到“模型”页面</div>
-    <p class="muted">现在可以在同一处查看、测试、启用和编辑所有模型。</p>
-    <a class="btn" href="/models">前往模型页面</a>
+    <div class="card__title">{{ t('models.setup.title') }}</div>
+    <p class="muted">{{ t('models.setup.body') }}</p>
+    <a class="btn" href="/models">{{ t('models.setup.cta') }}</a>
   </section>
 {% endblock %}

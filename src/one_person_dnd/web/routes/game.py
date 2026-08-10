@@ -27,6 +27,8 @@ from one_person_dnd.engine.orchestrator import ensure_dm_protocol_output
 from one_person_dnd.domain.actions import PlayerAction
 from one_person_dnd.llm import LLMClientError, create_llm_client
 from one_person_dnd.paths import ensure_app_dirs
+from one_person_dnd.web.localization import locale_for
+from one_person_dnd.web.recalled_context_presenter import present_recalled_context
 from one_person_dnd.web.routes.common import get_current_campaign_session, load_active_llm_config, templates
 from one_person_dnd.web.turn_errors import TURN_DOMAIN_ERRORS, public_turn_error
 from one_person_dnd.web.turn_presenter import TurnPresenter
@@ -174,13 +176,14 @@ def game_turn(
     tags: str = Form(""),
     state_block: str = Form(""),
 ) -> HTMLResponse:
+    ui = locale_for(request)
     paths = ensure_app_dirs()
     llm_cfg = load_active_llm_config()
     if llm_cfg is None:
         return templates.TemplateResponse(
             request=request,
-            name="partials/test_result.html",
-            context={"ok": False, "message": "LLM 未配置，请先在 /models 配置。"},
+            name="partials/message_result.html",
+            context={"ok": False, "message": ui("game.error.llm_unconfigured")},
             headers={"X-Turn-Accepted": "0"},
         )
 
@@ -232,19 +235,19 @@ def game_turn(
             context={
                 "turn": turn,
                 "recalled_world": result.recalled_world,
-                "recalled_context": list(result.recalled_context or []),
+                "recalled_context": present_recalled_context(result.recalled_context or [], ui=ui),
             },
         )
-    except LLMClientError as e:
+    except LLMClientError:
         return templates.TemplateResponse(
             request=request,
             name="partials/chat_turn_error_append.html",
-            context={"player_text": player_text, "message": str(e)},
+            context={"player_text": player_text, "message": ui("game.error.llm_failed")},
             headers={"X-Turn-Accepted": "0"},
         )
     except TURN_DOMAIN_ERRORS as exc:
         logger.warning("turn_rejected web_non_stream error=%s", type(exc).__name__, exc_info=True)
-        public = public_turn_error(exc)
+        public = public_turn_error(exc, ui=ui)
         headers = {"X-Turn-Accepted": "0"}
         if public.retry_after is not None:
             headers["Retry-After"] = public.retry_after
@@ -275,11 +278,13 @@ def game_turn_stream(
     """
     from starlette.responses import StreamingResponse
 
+    ui = locale_for(request)
     paths = ensure_app_dirs()
     llm_cfg = load_active_llm_config()
     if llm_cfg is None:
+        payload = json.dumps({"message": ui("game.error.llm_unconfigured")}, ensure_ascii=False)
         return StreamingResponse(
-            iter([('event: error\ndata: {"message":"LLM 未配置，请先在 /models 配置。"}\n\n').encode("utf-8")]),
+            iter([(f"event: error\ndata: {payload}\n\n").encode("utf-8")]),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache"},
         )
@@ -423,7 +428,7 @@ def game_turn_stream(
                     {
                         "turn": turn,
                         "recalled_world": result.recalled_world,
-                        "recalled_context": list(result.recalled_context or []),
+                        "recalled_context": present_recalled_context(result.recalled_context or [], ui=ui),
                     },
                 )
             finally:
@@ -445,14 +450,14 @@ def game_turn_stream(
         except GeneratorExit:
             # client disconnected / cancelled; do not persist partial results
             return
-        except LLMClientError as e:
-            yield _sse("error", {"message": str(e)})
+        except LLMClientError:
+            yield _sse("error", {"message": ui("game.error.llm_failed")})
         except TURN_DOMAIN_ERRORS as exc:
             logger.warning("turn_rejected web_stream error=%s", type(exc).__name__, exc_info=True)
-            yield _sse("error", {"message": public_turn_error(exc).message})
+            yield _sse("error", {"message": public_turn_error(exc, ui=ui).message})
         except Exception as exc:
             logger.exception("turn_failed web_stream")
-            yield _sse("error", {"message": public_turn_error(exc).message})
+            yield _sse("error", {"message": public_turn_error(exc, ui=ui).message})
 
     return StreamingResponse(
         _gen(),
@@ -470,20 +475,21 @@ def game_roll(
     request: Request,
     roll_expr_text: str = Form(""),
 ) -> HTMLResponse:
+    ui = locale_for(request)
     expr = (roll_expr_text or "").strip()
     if not expr:
         return templates.TemplateResponse(
             request=request,
-            name="partials/test_result.html",
-            context={"ok": False, "message": "请输入掷骰表达式（例如 d20 / 1d20+5 / 2d6-1）"},
+            name="partials/message_result.html",
+            context={"ok": False, "message": ui("game.error.roll_required")},
         )
     try:
         event = roll_expr(expr)
-    except ValueError as e:
+    except ValueError:
         return templates.TemplateResponse(
             request=request,
-            name="partials/test_result.html",
-            context={"ok": False, "message": str(e)},
+            name="partials/message_result.html",
+            context={"ok": False, "message": ui("game.error.roll_invalid")},
         )
     return templates.TemplateResponse(
         request=request,
@@ -501,6 +507,7 @@ def game_session_update(
     session_state: str = Form(""),
     pinned_world_notes: str = Form(""),
 ) -> HTMLResponse:
+    ui = locale_for(request)
     paths = ensure_app_dirs()
     conn = get_connection(paths.db_path)
     try:
@@ -519,5 +526,5 @@ def game_session_update(
     return templates.TemplateResponse(
         request=request,
         name="partials/save_ok.html",
-        context={"message": "已保存"},
+        context={"message": ui("game.save.done")},
     )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -9,6 +11,7 @@ from one_person_dnd.db.repos import app_settings, llm_profiles
 from one_person_dnd.llm import ChatMessage, LLMClientError, create_llm_client
 from one_person_dnd.llm.providers import apply_provider_defaults, list_provider_presets
 from one_person_dnd.paths import ensure_app_dirs
+from one_person_dnd.web.localization import locale_for
 from one_person_dnd.web.routes.common import ACTIVE_LLM_PROFILE_KEY, ensure_default_llm_profile_from_ini, templates
 
 router = APIRouter()
@@ -16,6 +19,7 @@ router = APIRouter()
 
 @router.get("/models", response_class=HTMLResponse)
 def models_page(request: Request, created: int = 0) -> HTMLResponse:
+    ui = locale_for(request)
     ensure_default_llm_profile_from_ini()
     paths = ensure_app_dirs()
     conn = get_connection(paths.db_path)
@@ -25,13 +29,24 @@ def models_page(request: Request, created: int = 0) -> HTMLResponse:
     finally:
         conn.close()
 
+    preset_label_keys = {
+        "openai_compat": "models.provider.openai_compat",
+        "deepseek": "models.provider.deepseek",
+    }
+    provider_presets = []
+    for preset in list_provider_presets():
+        label_key = preset_label_keys.get(preset.id)
+        provider_presets.append(
+            replace(preset, label=ui(label_key) if label_key else preset.label)
+        )
+
     return templates.TemplateResponse(
         request=request,
         name="models.html",
         context={
             "profiles": profiles,
             "active_id": int(active_id) if active_id and active_id.isdigit() else None,
-            "provider_presets": list_provider_presets(),
+            "provider_presets": provider_presets,
             "created": int(created) == 1,
         },
     )
@@ -158,10 +173,11 @@ def models_test(
         conn.close()
 
     if not row:
+        ui = locale_for(request)
         return templates.TemplateResponse(
             request=request,
             name="partials/test_result.html",
-            context={"ok": False, "message": "未找到该模型配置"},
+            context={"ok": False, "message": ui("models.error.profile_not_found")},
         )
 
     cfg = LLMConfig(

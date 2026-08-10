@@ -5,48 +5,47 @@
 {% endif %}
 
 <section class="sheet-panel">
-  <div class="panel-section__title">角色概览</div>
+  <div class="panel-section__title">{{ t('character.overview') }}</div>
   {% if character_summary and character_summary.has_content %}
     <div class="sheet-summary">
-      <div class="sheet-summary__name">{{ character_summary.name or "未命名角色" }}</div>
+      <div class="sheet-summary__name">{{ character_summary.name or t('character.unnamed') }}</div>
       <div class="muted">
         {% if character_summary.race or character_summary.role %}
           {{ character_summary.race }}{% if character_summary.race and character_summary.role %} / {% endif %}{{ character_summary.role }}
         {% else %}
-          身份未设置
+          {{ t('character.identity_unset') }}
         {% endif %}
       </div>
       <div class="stat-pills stat-pills--spaced">
         <span class="stat-pill">HP {{ character_summary.hp if character_summary.hp is not none else "?" }}{% if character_summary.max_hp is not none %}/{{ character_summary.max_hp }}{% endif %}</span>
-        <span class="stat-pill">金币 {{ character_summary.gold if character_summary.gold is not none else "?" }}</span>
+        <span class="stat-pill">{{ t('character.gold_value', value=character_summary.gold if character_summary.gold is not none else '?') }}</span>
       </div>
       {% if character_summary.goal %}
-        <div class="muted muted--spaced">目标：{{ character_summary.goal }}</div>
+        <div class="muted muted--spaced">{{ t('character.summary.goal', value=character_summary.goal) }}</div>
       {% endif %}
       {% if character_summary.inventory %}
-        <div class="muted muted--spaced">物品：{{ character_summary.inventory | join("、") }}</div>
+        <div class="muted muted--spaced">{{ t('character.summary.inventory', value=character_summary.inventory | join(t('character.list_separator'))) }}</div>
       {% endif %}
       {% if character_summary.conditions %}
-        <div class="muted muted--spaced">状态：{{ character_summary.conditions | join("、") }}</div>
+        <div class="muted muted--spaced">{{ t('character.summary.conditions', value=character_summary.conditions | join(t('character.list_separator'))) }}</div>
       {% endif %}
       {% if character_summary.abilities %}
         <div class="muted muted--spaced">
-          属性：{% for key, value in character_summary.abilities.items() %}{{ key }} {{ value }}{% if not loop.last %}，{% endif %}{% endfor %}
+          {{ t('character.summary.abilities', value='') }}{% for key, value in character_summary.abilities.items() %}{{ key }} {{ value }}{% if not loop.last %}{{ t('character.ability_separator') }}{% endif %}{% endfor %}
         </div>
       {% endif %}
       {% if character_summary.notes %}
-        <div class="muted muted--spaced">备注：{{ character_summary.notes }}</div>
+        <div class="muted muted--spaced">{{ t('character.summary.notes', value=character_summary.notes) }}</div>
       {% endif %}
     </div>
   {% else %}
-    <div class="muted">（暂无角色卡。可以用新冒险向导生成，或在高级 JSON 中粘贴一份角色卡。）</div>
+    <div class="muted">{{ t('character.no_sheet') }}</div>
   {% endif %}
 
   <div class="panel-card">
-    <div class="panel-section__title">快捷改值</div>
+    <div class="panel-section__title">{{ t('character.quick_adjust') }}</div>
     <div class="muted">
-      HP = {{ quick_stats.hp if quick_stats.hp is not none else "未知" }}，
-      金币 = {{ quick_stats.gold if quick_stats.gold is not none else "未知" }}
+      {{ t('character.quick_values', hp=quick_stats.hp if quick_stats.hp is not none else t('character.unknown'), gold=quick_stats.gold if quick_stats.gold is not none else t('character.unknown')) }}
     </div>
     <form
       class="form"
@@ -58,27 +57,27 @@
     >
       <div class="row">
         <label class="label label--flush">
-          HP 增量
+          {{ t('character.hp_delta') }}
           <input class="input input--compact" type="number" inputmode="numeric" name="hp_delta" value="0" autocomplete="off" />
         </label>
         <label class="label label--flush">
-          金币增量
+          {{ t('character.gold_delta') }}
           <input class="input input--compact" type="number" inputmode="numeric" name="gold_delta" value="0" autocomplete="off" />
         </label>
       </div>
       <label class="label">
-        原因（可选）
-        <input class="input" name="reason" autocomplete="off" placeholder="例如：剧情奖励 / 惩罚 / 测试分支" />
+        {{ t('character.reason_optional') }}
+        <input class="input" name="reason" autocomplete="off" placeholder="{{ t('character.reason_placeholder') }}" />
       </label>
       <div class="row">
-        <button class="btn" type="submit">应用改值</button>
-        <span id="quick-adjust-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">应用中…</span>
+        <button class="btn" type="submit">{{ t('character.apply_adjustment') }}</button>
+        <span id="quick-adjust-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{{ t('character.applying') }}</span>
       </div>
     </form>
   </div>
 
   <div class="panel-card">
-    <div class="panel-section__title">状态、物品与备注</div>
+    <div class="panel-section__title">{{ t('character.state_inventory_notes') }}</div>
     <form
       class="form"
       hx-post="/character/quick_state"
@@ -88,27 +87,27 @@
       hx-indicator="#quick-state-saving"
     >
       <label class="label label--flush">
-        当前状态（逗号或换行分隔）
-        <textarea class="input textarea" name="conditions_text" autocomplete="off" placeholder="例如：中毒、隐匿、疲惫">{{ character_summary.conditions | join("\n") if character_summary and character_summary.conditions else "" }}</textarea>
+        {{ t('character.conditions_field') }}
+        <textarea class="input textarea" name="conditions_text" autocomplete="off" placeholder="{{ t('character.conditions_placeholder') }}">{{ character_summary.conditions | join("\n") if character_summary and character_summary.conditions else "" }}</textarea>
       </label>
       <label class="label">
-        物品（逗号或换行分隔）
-        <textarea class="input textarea" name="inventory_text" autocomplete="off" placeholder="例如：短剑、治疗药水、银钥匙">{{ character_summary.inventory | join("\n") if character_summary and character_summary.inventory else "" }}</textarea>
+        {{ t('character.inventory_field') }}
+        <textarea class="input textarea" name="inventory_text" autocomplete="off" placeholder="{{ t('character.inventory_placeholder') }}">{{ character_summary.inventory | join("\n") if character_summary and character_summary.inventory else "" }}</textarea>
       </label>
       <label class="label">
-        角色备注
-        <textarea class="input textarea" name="notes_text" autocomplete="off" placeholder="例如：害怕深水；欠酒馆老板娘一个人情。">{{ character_summary.notes if character_summary else "" }}</textarea>
+        {{ t('character.notes_field') }}
+        <textarea class="input textarea" name="notes_text" autocomplete="off" placeholder="{{ t('character.notes_placeholder') }}">{{ character_summary.notes if character_summary else "" }}</textarea>
       </label>
       <div class="row">
-        <button class="btn btn--ghost" type="submit">保存状态/物品</button>
-        <span id="quick-state-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">保存中…</span>
+        <button class="btn btn--ghost" type="submit">{{ t('character.save_state') }}</button>
+        <span id="quick-state-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{{ t('character.saving') }}</span>
       </div>
     </form>
   </div>
 </section>
 
 <details class="advanced advanced--spaced">
-  <summary>角色卡 JSON（高级）</summary>
+  <summary>{{ t('character.json_summary') }}</summary>
   <form
     class="form"
     hx-post="/character/save"
@@ -117,30 +116,30 @@
     hx-indicator="#character-saving"
   >
     <label class="label">
-      角色卡 JSON（权威状态建议落库，不依赖模型“记得”）
-      <textarea class="input textarea" name="character_sheet" autocomplete="off" spellcheck="false" placeholder='{"name":"主角","hp":10,"gold":5,"inventory":["短剑"]}'>{{ character_sheet }}</textarea>
+      {{ t('character.json_label') }}
+      <textarea class="input textarea" name="character_sheet" autocomplete="off" spellcheck="false" placeholder="{{ t('character.json_placeholder') }}">{{ character_sheet }}</textarea>
     </label>
     <div class="row">
-      <button class="btn" type="submit">保存角色卡</button>
-      <span id="character-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">保存中…</span>
+      <button class="btn" type="submit">{{ t('character.save_sheet') }}</button>
+      <span id="character-saving" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{{ t('character.saving') }}</span>
     </div>
     <div id="character-save-result" role="status" aria-live="polite"></div>
   </form>
 </details>
 
 <section class="sheet-panel">
-  <div class="panel-section__title">待确认变更</div>
+  <div class="panel-section__title">{{ t('character.pending_changes') }}</div>
   {% if pending_changes and pending_changes|length > 0 %}
     {% for c in pending_changes %}
       <div class="change-request">
         <div class="kv">
-          <div class="kv__k">ID</div><div class="kv__v">{{ c.id }}</div>
-          <div class="kv__k">类型</div><div class="kv__v">{{ c.kind }}</div>
-          <div class="kv__k">回合</div><div class="kv__v">{{ c.turn_index }}</div>
+          <div class="kv__k">{{ t('character.change.id') }}</div><div class="kv__v">{{ c.id }}</div>
+          <div class="kv__k">{{ t('character.change.type') }}</div><div class="kv__v">{% if c.kind == 'state_delta' %}{{ t('character.change.kind.state_delta') }}{% elif c.kind == 'thread_updates' %}{{ t('character.change.kind.thread_updates') }}{% else %}{{ c.kind }}{% endif %}</div>
+          <div class="kv__k">{{ t('character.change.turn') }}</div><div class="kv__v">{{ c.turn_index }}</div>
         </div>
         <div class="change-preview {% if c.preview and not c.preview.ok %}change-preview--error{% endif %}">
           <div class="change-preview__title">
-            变更预览{% if c.preview %}：{{ c.preview.summary }}{% endif %}
+            {{ t('character.change.preview') }}{% if c.preview %}: {{ c.preview.summary }}{% endif %}
           </div>
           {% if c.preview and c.preview.lines %}
             <ul class="change-preview__list">
@@ -149,11 +148,11 @@
               {% endfor %}
             </ul>
           {% else %}
-            <div class="muted">（暂无可读预览，请查看原始 JSON）</div>
+            <div class="muted">{{ t('character.change.no_preview') }}</div>
           {% endif %}
         </div>
         <details class="advanced">
-          <summary>原始 JSON</summary>
+          <summary>{{ t('character.change.raw_json') }}</summary>
           <pre class="muted pre--wrap">{{ c.delta_json_text }}</pre>
         </details>
         <div class="row row--compact-spaced">
@@ -165,8 +164,8 @@
             hx-indicator="#change-apply-saving-{{ c.id }}"
           >
             <input type="hidden" name="request_id" value="{{ c.id }}" />
-            <button class="btn" type="submit">应用</button>
-            <span id="change-apply-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">应用中…</span>
+            <button class="btn" type="submit">{{ t('character.change.apply') }}</button>
+            <span id="change-apply-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{{ t('character.applying') }}</span>
           </form>
           <form
             hx-post="/character/change/reject"
@@ -176,13 +175,13 @@
             hx-indicator="#change-reject-saving-{{ c.id }}"
           >
             <input type="hidden" name="request_id" value="{{ c.id }}" />
-            <button class="btn btn--ghost" type="submit">拒绝</button>
-            <span id="change-reject-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">拒绝中…</span>
+            <button class="btn btn--ghost" type="submit">{{ t('character.change.reject') }}</button>
+            <span id="change-reject-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{{ t('character.rejecting') }}</span>
           </form>
         </div>
       </div>
     {% endfor %}
   {% else %}
-    <div class="muted">（暂无待确认变更）</div>
+    <div class="muted">{{ t('character.pending.empty') }}</div>
   {% endif %}
 </section>

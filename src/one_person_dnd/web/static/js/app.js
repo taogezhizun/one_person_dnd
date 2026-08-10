@@ -7,7 +7,7 @@
         const STATE_BLOCK_DRAFT_STORAGE_PREFIX = "one_person_dnd.stateBlockDraft.";
         const TURN_ATTEMPT_STORAGE_PREFIX = "one_person_dnd.turnAttempt.";
         const SCROLL_BTN_ID = "scroll-to-bottom-btn";
-        // Single source of truth for these five label maps is
+        // Single source of truth for these display maps is
         // `one_person_dnd.web.labels` (Python); base.html serializes them as
         // JSON into `#dnd-labels` before this script runs. A missing/invalid
         // element degrades gracefully to empty maps, which `labelForCode`
@@ -26,6 +26,7 @@
         const ACTION_WARNING_LABELS = Object.freeze(LABEL_DATA.action_warning || {});
         const CRITIC_WARNING_LABELS = Object.freeze(LABEL_DATA.critic_warning || {});
         const RESPONSE_WARNING_LABELS = Object.freeze(LABEL_DATA.response_warning || {});
+        const ADJUDICATION_INTENT_LABELS = Object.freeze(LABEL_DATA.adjudication_intent || {});
 
         function labelForCode(labels, code) {
           if (!code) return "";
@@ -100,7 +101,7 @@
           btn.id = SCROLL_BTN_ID;
           btn.className = "scroll-bottom-btn";
           btn.style.display = "none";
-          btn.textContent = "回到底部";
+          btn.textContent = window.DndI18n.t("game.js.scroll_bottom");
           btn.addEventListener("click", function () {
             const chat = document.getElementById("chat-history");
             if (!chat) return;
@@ -128,7 +129,9 @@
             return;
           }
           btn.style.display = "inline-flex";
-          btn.textContent = hasUnreadNewContent ? "有新消息 · 回到底部" : "回到底部";
+          btn.textContent = window.DndI18n.t(
+            hasUnreadNewContent ? "game.js.scroll_unread" : "game.js.scroll_bottom"
+          );
         }
 
         function scheduleAutoScroll() {
@@ -154,7 +157,11 @@
           } catch (e) {}
 
           const btn = document.querySelector("[data-sidebar-toggle]");
-          if (btn) btn.textContent = collapsed ? "展开冒险面板" : "收起冒险面板";
+          if (btn) {
+            btn.textContent = window.DndI18n.t(
+              collapsed ? "game.sidebar.expand" : "game.sidebar.collapse"
+            );
+          }
         }
 
         function initSidebarToggle() {
@@ -639,7 +646,7 @@
           const hasText = Boolean(ta && ta.value.trim());
           const llmReady = form.dataset.llmReady !== "0";
           const loading = form.dataset.turnInFlight === "1";
-          const defaultLabel = submitBtn.dataset.defaultLabel || "发送";
+          const defaultLabel = submitBtn.dataset.defaultLabel || window.DndI18n.t("game.composer.send");
           const loadingLabel = submitBtn.dataset.loadingLabel || defaultLabel;
           submitBtn.textContent = loading ? loadingLabel : defaultLabel;
           submitBtn.disabled = loading || !hasText || !llmReady;
@@ -752,7 +759,10 @@
 
           const userMsg = document.createElement("div");
           userMsg.className = "chat__msg chat__msg--user";
-          userMsg.innerHTML = '<div class="chat__meta">你</div>';
+          const userMeta = document.createElement("div");
+          userMeta.className = "chat__meta";
+          userMeta.textContent = window.DndI18n.t("game.turn.you");
+          userMsg.appendChild(userMeta);
           const userContent = document.createElement("div");
           userContent.className = "chat__content pre";
           userContent.textContent = playerText || "";
@@ -767,7 +777,7 @@
           asstContent.dataset.waiting = "1";
           asstContent.setAttribute("role", "status");
           asstContent.setAttribute("aria-live", "polite");
-          asstContent.textContent = "DM 正在思考下一幕…";
+          asstContent.textContent = window.DndI18n.t("game.js.dm_thinking");
           asstMsg.appendChild(asstContent);
 
           turnEl.appendChild(userMsg);
@@ -793,7 +803,7 @@
 
           const titleEl = document.createElement("div");
           titleEl.style.fontWeight = "700";
-          titleEl.textContent = title || "请求状态";
+          titleEl.textContent = title || window.DndI18n.t("game.error.request_status");
           notice.appendChild(titleEl);
 
           const msgEl = document.createElement("div");
@@ -826,8 +836,7 @@
           if (callout) callout.hidden = next <= 0;
           const text = document.querySelector("[data-review-callout-text]");
           if (text) {
-            text.textContent =
-              `有 ${next} 条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。`;
+            text.textContent = window.DndI18n.t("game.js.pending_body", { count: next });
           }
         }
 
@@ -855,7 +864,7 @@
           wrap.className = "action-assessment";
           const label = document.createElement("div");
           label.className = "muted action-assessment__label";
-          label.textContent = "系统判定";
+          label.textContent = window.DndI18n.t("game.turn.system_judgment");
           wrap.appendChild(label);
 
           const pills = document.createElement("div");
@@ -866,7 +875,12 @@
             if (!setPillCode(pill, code, labels, prefix)) return;
             pills.appendChild(pill);
           };
-          addPill(assessment.action_type, false, ACTION_TYPE_LABELS, "行动：");
+          addPill(
+            assessment.action_type,
+            false,
+            ACTION_TYPE_LABELS,
+            window.DndI18n.t("game.turn.action", { action: "" })
+          );
           const signals = Array.isArray(assessment.signals) ? assessment.signals : [];
           const warnings = Array.isArray(assessment.warnings) ? assessment.warnings : [];
           signals.forEach((s) => addPill(s, false, ACTION_SIGNAL_LABELS, ""));
@@ -880,7 +894,9 @@
             summary.className = "adjudication-summary";
             summary.setAttribute("data-adjudication-summary", "");
             const headline = document.createElement("div");
-            const outcome = check.outcome === "success" ? "成功" : "失败";
+            const outcome = window.DndI18n.t(
+              check.outcome === "success" ? "game.turn.success" : "game.turn.failure"
+            );
             const skill = check.skill ? ` / ${check.skill}` : "";
             headline.textContent = `${outcome} · ${check.ability || "?"}${skill} · DC ${check.dc}`;
             const formula = document.createElement("div");
@@ -890,15 +906,32 @@
               const number = Number(value || 0);
               return number >= 0 ? `+${number}` : String(number);
             };
-            const mode = check.roll_mode === "advantage" ? " · 优势" : check.roll_mode === "disadvantage" ? " · 劣势" : "";
-            const natural = check.natural_face === "natural_20" ? " · 自然 20" : check.natural_face === "natural_1" ? " · 自然 1" : "";
-            formula.textContent = `d20 [${faces}] 取 ${check.selected_d20} ${signed(check.ability_modifier)} 属性 ${signed(check.proficiency_modifier)} 熟练 ${signed(check.circumstance_modifier)} 情境 = ${check.total}${mode}${natural}`;
+            const mode = check.roll_mode === "advantage"
+              ? ` · ${window.DndI18n.t("game.turn.advantage")}`
+              : check.roll_mode === "disadvantage"
+                ? ` · ${window.DndI18n.t("game.turn.disadvantage")}`
+                : "";
+            const natural = check.natural_face === "natural_20"
+              ? ` · ${window.DndI18n.t("game.turn.natural_20")}`
+              : check.natural_face === "natural_1"
+                ? ` · ${window.DndI18n.t("game.turn.natural_1")}`
+                : "";
+            formula.textContent = window.DndI18n.t("game.turn.roll_formula", {
+              faces,
+              selected: check.selected_d20,
+              ability: signed(check.ability_modifier),
+              proficiency: signed(check.proficiency_modifier),
+              circumstance: signed(check.circumstance_modifier),
+              total: check.total,
+            }) + mode + natural;
             summary.appendChild(headline);
             summary.appendChild(formula);
             if (check.intent) {
               const intent = document.createElement("div");
               intent.className = "muted";
-              intent.textContent = `意图：${check.intent}`;
+              intent.textContent = window.DndI18n.t("game.turn.intent", {
+                intent: labelForCode(ADJUDICATION_INTENT_LABELS, check.intent),
+              });
               summary.appendChild(intent);
             }
             wrap.appendChild(summary);
@@ -915,7 +948,7 @@
           wrap.className = "dm-review";
           const label = document.createElement("div");
           label.className = "muted dm-review__label";
-          label.textContent = "DM 审查";
+          label.textContent = window.DndI18n.t("game.turn.dm_review");
           wrap.appendChild(label);
 
           const pills = document.createElement("div");
@@ -940,7 +973,7 @@
           wrap.className = "response-review";
           const label = document.createElement("div");
           label.className = "muted response-review__label";
-          label.textContent = "反应评估";
+          label.textContent = window.DndI18n.t("game.turn.response_review");
           wrap.appendChild(label);
 
           const pills = document.createElement("div");
@@ -994,7 +1027,7 @@
           const memorySuggestions = (turn.dm && turn.dm.memory_suggestions) || "";
           if (!criticWarnings.length && !responseWarnings.length && !dmNotes.trim() && !memorySuggestions.trim()) return;
 
-          const turnIndex = String(turn.turn_index ?? "最新");
+          const turnIndex = String(turn.turn_index ?? window.DndI18n.t("game.turn.latest"));
           const previous = root.querySelector(`[data-turn-diagnostic="${CSS.escape(turnIndex)}"]`);
           if (previous) previous.remove();
 
@@ -1004,7 +1037,7 @@
           const head = document.createElement("div");
           head.className = "turn-diagnostic__head";
           const title = document.createElement("strong");
-          title.textContent = `回合 ${turnIndex}`;
+          title.textContent = window.DndI18n.t("game.turn.index", { index: turnIndex });
           head.appendChild(title);
           article.appendChild(head);
 
@@ -1013,7 +1046,7 @@
           if (!criticWarnings.length && !responseWarnings.length) {
             const passed = document.createElement("div");
             passed.className = "muted";
-            passed.textContent = "可玩性检查通过";
+            passed.textContent = window.DndI18n.t("game.turn.playability_passed");
             article.appendChild(passed);
           }
           const addDetails = function (label, content) {
@@ -1028,8 +1061,8 @@
             details.appendChild(body);
             article.appendChild(details);
           };
-          addDetails("DM 内部备注", dmNotes);
-          addDetails("故事记忆建议", memorySuggestions);
+          addDetails(window.DndI18n.t("game.turn.dm_notes"), dmNotes);
+          addDetails(window.DndI18n.t("game.turn.memory_suggestions"), memorySuggestions);
           root.prepend(article);
         }
 
@@ -1045,7 +1078,7 @@
             details.open = true;
             const summary = document.createElement("summary");
             summary.className = "muted";
-            summary.textContent = "本回合参考";
+            summary.textContent = window.DndI18n.t("game.recall.title");
             details.appendChild(summary);
 
             const ol = document.createElement("ol");
@@ -1059,30 +1092,33 @@
               head.className = "recall-item__head";
               const title = document.createElement("span");
               title.className = "recall-item__title";
-              title.textContent = item.title || item.kind || "Context";
+              title.textContent = item.title || item.kind || window.DndI18n.t("game.recall.fallback_title");
               const meta = document.createElement("span");
               meta.className = "muted";
-              meta.textContent = `${item.kind || "context"} · ${item.source || "unknown"}`;
+              meta.textContent = `${item.kind || window.DndI18n.t("game.recall.fallback_kind")} · ${item.source || window.DndI18n.t("game.recall.unknown")}`;
               head.appendChild(title);
               head.appendChild(meta);
               if (isSkipped) {
                 const status = document.createElement("span");
                 status.className = "recall-status recall-status--skipped";
-                status.textContent = "已裁剪";
+                status.textContent = window.DndI18n.t("game.recall.trimmed");
                 head.appendChild(status);
               }
               li.appendChild(head);
 
-              if (item.reason) {
+              if (item.reason_code || item.reason) {
                 const reason = document.createElement("div");
                 reason.className = "muted";
-                reason.textContent = item.reason;
+                reason.textContent = item.reason_code
+                  ? window.DndI18n.t(`game.recall.reason.${item.reason_code}`)
+                  : item.reason;
                 li.appendChild(reason);
               }
-              if (item.preview) {
+              const previewText = item.display_preview || item.preview;
+              if (previewText) {
                 const preview = document.createElement("div");
                 preview.className = "recall-item__preview";
-                preview.textContent = item.preview;
+                preview.textContent = previewText;
                 li.appendChild(preview);
               }
               ol.appendChild(li);
@@ -1106,7 +1142,7 @@
               if (e.tags) {
                 const s = document.createElement("span");
                 s.className = "muted";
-                s.textContent = `（${e.tags}）`;
+                s.textContent = window.DndI18n.t("game.recall.tags", { tags: e.tags });
                 li.appendChild(document.createTextNode(" "));
                 li.appendChild(s);
               }
@@ -1114,7 +1150,10 @@
             });
             recall.appendChild(ol);
           } else {
-            recall.innerHTML = '<span class="muted">（本回合没有可显示的召回上下文；可以尝试填写更具体的标签或状态）</span>';
+            const empty = document.createElement("span");
+            empty.className = "muted";
+            empty.textContent = window.DndI18n.t("game.recall.empty");
+            recall.appendChild(empty);
           }
         }
 
@@ -1134,7 +1173,7 @@
             wrap.className = "dice-events";
             const title = document.createElement("div");
             title.className = "muted";
-            title.textContent = "系统掷骰";
+            title.textContent = window.DndI18n.t("game.turn.system_roll");
             wrap.appendChild(title);
             const ul = document.createElement("ul");
             ul.className = "dice-events__list";
@@ -1167,7 +1206,7 @@
             wrap.className = "turn-choice-history";
             wrap.setAttribute("data-turn-choice-history", "");
             const summary = document.createElement("summary");
-            summary.textContent = "当时的行动灵感";
+            summary.textContent = window.DndI18n.t("game.turn.choice_history");
             wrap.appendChild(summary);
             const list = document.createElement("div");
             list.className = "choices__list";
@@ -1218,7 +1257,7 @@
           const feedback = document.querySelector("[data-choice-feedback]");
           if (!feedback) return;
           if (choiceFeedbackTimer) window.clearTimeout(choiceFeedbackTimer);
-          feedback.textContent = "已填入行动，可直接发送";
+          feedback.textContent = window.DndI18n.t("game.js.choice_filled");
           feedback.hidden = false;
           choiceFeedbackTimer = window.setTimeout(function () {
             feedback.hidden = true;
@@ -1230,7 +1269,7 @@
           const feedback = document.querySelector("[data-choice-feedback]");
           if (!feedback) return;
           if (choiceFeedbackTimer) window.clearTimeout(choiceFeedbackTimer);
-          feedback.textContent = "已恢复未发送的行动草稿，可继续编辑或发送";
+          feedback.textContent = window.DndI18n.t("game.js.draft_restored");
           feedback.hidden = false;
           choiceFeedbackTimer = window.setTimeout(function () {
             feedback.hidden = true;
@@ -1248,7 +1287,7 @@
         function showTurnContextFeedback(context) {
           const feedback = document.querySelector("[data-turn-context-feedback]");
           if (!feedback) return;
-          feedback.textContent = "已带入本回合线索：" + context;
+          feedback.textContent = window.DndI18n.t("game.js.context_added", { context });
           feedback.hidden = false;
         }
 
@@ -1393,11 +1432,11 @@
             const current = stateBlock.value.trim();
             const contextLines = current.split("\n").map((line) => line.trim()).filter(Boolean);
             if (contextLines.includes(context)) {
-              showTurnContextFeedback("该线索已在本回合上下文中");
+              showTurnContextFeedback(window.DndI18n.t("game.js.context_exists"));
               revealTurnContextInput(stateBlock);
 
               const originalText = btn.textContent;
-              btn.textContent = "已带入过";
+              btn.textContent = window.DndI18n.t("game.js.context_used");
               btn.disabled = true;
               window.setTimeout(function () {
                 btn.textContent = originalText;
@@ -1411,7 +1450,7 @@
             revealTurnContextInput(stateBlock);
 
             const originalText = btn.textContent;
-            btn.textContent = "已带入线索";
+            btn.textContent = window.DndI18n.t("game.js.context_use");
             btn.disabled = true;
             window.setTimeout(function () {
               btn.textContent = originalText;
@@ -1463,7 +1502,10 @@
                   method: "POST",
                   body: fd,
                   signal: currentTurnAbortController.signal,
-                  headers: { Accept: "text/event-stream" },
+                  headers: {
+                    Accept: "text/event-stream",
+                    "X-DND-UI-Locale": window.DndI18n.locale,
+                  },
                 });
                 if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
@@ -1526,9 +1568,11 @@
                       if (asstMsg) {
                         asstMsg.innerHTML =
                           '<div class="chat__meta">DM</div>' +
-                          '<div class="notice notice--err" role="status" aria-live="polite"><div class="notice__title">请求失败</div><div class="muted"></div></div>';
+                          '<div class="notice notice--err" role="status" aria-live="polite"><div class="notice__title"></div><div class="muted"></div></div>';
+                        const errorTitle = asstMsg.querySelector(".notice__title");
+                        if (errorTitle) errorTitle.textContent = window.DndI18n.t("game.error.request_title");
                         const m = asstMsg.querySelector(".notice .muted");
-                        if (m) m.textContent = payload.message || "未知错误";
+                        if (m) m.textContent = payload.message || window.DndI18n.t("game.error.unknown");
                       }
                       if (shouldFollowScroll) scheduleAutoScroll();
                       else updateScrollButton();
@@ -1554,10 +1598,15 @@
               } catch (err) {
                 const aborted = err && err.name === "AbortError";
                 if (aborted) {
-                  renderTurnRequestNotice(turnEl, "请求已取消", "行动草稿已保留，可以修改后重新发送。", false);
+                  renderTurnRequestNotice(
+                    turnEl,
+                    window.DndI18n.t("game.error.cancelled_title"),
+                    window.DndI18n.t("game.error.cancelled_body"),
+                    false
+                  );
                 } else {
-                  const message = err && err.message ? err.message : "网络连接中断，请稍后重试。";
-                  renderTurnRequestNotice(turnEl, "请求失败", message, true);
+                  const message = err && err.message ? err.message : window.DndI18n.t("game.error.network");
+                  renderTurnRequestNotice(turnEl, window.DndI18n.t("game.error.request_title"), message, true);
                 }
                 if (shouldFollowScroll) {
                   scheduleAutoScroll();

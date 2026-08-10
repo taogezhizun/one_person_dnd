@@ -13,6 +13,7 @@ from one_person_dnd.domain.state_changes import StateChangePreview, merge_state_
 from one_person_dnd.domain.thread_updates import apply_thread_updates_json, preview_thread_updates_json
 from one_person_dnd.engine.guardrails import GuardrailError, validate_state_delta_json
 from one_person_dnd.paths import ensure_app_dirs
+from one_person_dnd.web.localization import Localizer, locale_for
 from one_person_dnd.web.routes.common import get_current_campaign_session, templates
 
 router = APIRouter()
@@ -85,30 +86,51 @@ def _split_text_list(value: str) -> list[str]:
     return parts
 
 
-def _with_change_previews(sheet_text: str, pending: list[dict]) -> list[dict]:
+def _with_change_previews(sheet_text: str, pending: list[dict], *, ui: Localizer) -> list[dict]:
     out: list[dict] = []
     for item in pending:
         row = dict(item)
         if (row.get("kind") or "").strip() == "state_delta":
-            row["preview"] = preview_state_delta(sheet_text, row.get("delta_json_text") or "")
+            row["preview"] = preview_state_delta(
+                sheet_text,
+                row.get("delta_json_text") or "",
+                translator=ui,
+            )
         elif (row.get("kind") or "").strip() == "thread_updates":
-            row["preview"] = preview_thread_updates_json(row.get("delta_json_text") or "")
+            row["preview"] = preview_thread_updates_json(
+                row.get("delta_json_text") or "",
+                translator=ui,
+            )
         else:
             row["preview"] = StateChangePreview(
                 ok=True,
-                summary="剧情线更新建议",
-                lines=["暂不支持自动应用，请到剧情线页面手动处理。"],
+                summary=ui("character.preview.unsupported_summary"),
+                lines=[ui("character.preview.unsupported_line")],
             )
         out.append(row)
     return out
 
 
+def _invalid_change_notice(ui: Localizer, error: GuardrailError) -> str:
+    # GuardrailError currently carries Chinese domain diagnostics. Preserve the
+    # useful detail in the Chinese UI; English gets a fully localized public
+    # message instead of leaking a mixed-language implementation detail.
+    if ui.locale == "zh-CN":
+        return ui("character.notice.invalid_rejected_detail", detail=str(error))
+    return ui("character.notice.invalid_rejected")
+
+
 def _render_panel(request: Request, *, session_id: int, notice_message: str = "") -> HTMLResponse:
+    ui = locale_for(request)
     paths = ensure_app_dirs()
     conn = get_connection(paths.db_path)
     try:
         sheet = character_sheets.get_character_sheet(conn, session_id=session_id)
-        pending = _with_change_previews(sheet, state_change_requests.list_pending(conn, session_id=session_id, limit=50))
+        pending = _with_change_previews(
+            sheet,
+            state_change_requests.list_pending(conn, session_id=session_id, limit=50),
+            ui=ui,
+        )
         character_summary = summarize_character_sheet(sheet)
         quick_stats = _extract_quick_stats(sheet)
     finally:
@@ -164,19 +186,24 @@ def character_save(
     return templates.TemplateResponse(
         request=request,
         name="partials/save_ok.html",
-        context={"message": "角色卡已保存"},
+        context={"message": locale_for(request)("character.notice.sheet_saved")},
     )
 
 
 @router.post("/character/change/apply")
 def change_apply(request: Request, request_id: int = Form(...)) -> HTMLResponse:
+    ui = locale_for(request)
     paths = ensure_app_dirs()
     _campaign_id, session_id = get_current_campaign_session()
     conn = get_connection(paths.db_path)
     try:
         req = state_change_requests.get_request(conn, request_id=int(request_id), session_id=session_id)
         if req is None:
-            return _render_panel(request, session_id=session_id, notice_message="未找到该变更请求（可能已处理）。")
+            return _render_panel(
+                request,
+                session_id=session_id,
+                notice_message=ui("character.notice.request_missing"),
+            )
 
         kind = (req.get("kind") or "").strip()
         if kind == "thread_updates":
@@ -191,7 +218,11 @@ def change_apply(request: Request, request_id: int = Form(...)) -> HTMLResponse:
                     conn, request_id=int(request_id), session_id=session_id, status="rejected", error_text=str(e)
                 )
                 conn.commit()
-                return _render_panel(request, session_id=session_id, notice_message=f"已拒绝：{e}")
+                return _render_panel(
+                    request,
+                    session_id=session_id,
+                    notice_message=_invalid_change_notice(ui, e),
+                )
 
             state_change_requests.set_status(conn, request_id=int(request_id), session_id=session_id, status="applied")
             manual_change_logs.insert_log(
@@ -205,14 +236,22 @@ def change_apply(request: Request, request_id: int = Form(...)) -> HTMLResponse:
                 ),
             )
             conn.commit()
-            return _render_panel(request, session_id=session_id, notice_message="已应用剧情线更新。")
+            return _render_panel(
+                request,
+                session_id=session_id,
+                notice_message=ui("character.notice.threads_applied"),
+            )
 
         if kind != "state_delta":
             state_change_requests.set_status(
                 conn, request_id=int(request_id), session_id=session_id, status="rejected", error_text="暂不支持自动应用该类型"
             )
             conn.commit()
-            return _render_panel(request, session_id=session_id, notice_message="已拒绝：暂不支持自动应用该类型。")
+            return _render_panel(
+                request,
+                session_id=session_id,
+                notice_message=ui("character.notice.unsupported_rejected"),
+            )
 
         delta_text = (req.get("delta_json_text") or "").strip()
         try:
@@ -222,7 +261,11 @@ def change_apply(request: Request, request_id: int = Form(...)) -> HTMLResponse:
                 conn, request_id=int(request_id), session_id=session_id, status="rejected", error_text=str(e)
             )
             conn.commit()
-            return _render_panel(request, session_id=session_id, notice_message=f"已拒绝：{e}")
+            return _render_panel(
+                request,
+                session_id=session_id,
+                notice_message=_invalid_change_notice(ui, e),
+            )
 
         base_text = character_sheets.get_character_sheet(conn, session_id=session_id).strip()
         base_obj: dict[str, Any] = {}
@@ -252,7 +295,11 @@ def change_apply(request: Request, request_id: int = Form(...)) -> HTMLResponse:
     finally:
         conn.close()
 
-    return _render_panel(request, session_id=session_id, notice_message="已应用变更。")
+    return _render_panel(
+        request,
+        session_id=session_id,
+        notice_message=ui("character.notice.change_applied"),
+    )
 
 
 @router.post("/character/change/reject")
@@ -265,7 +312,11 @@ def change_reject(request: Request, request_id: int = Form(...)) -> HTMLResponse
         conn.commit()
     finally:
         conn.close()
-    return _render_panel(request, session_id=session_id, notice_message="已拒绝变更。")
+    return _render_panel(
+        request,
+        session_id=session_id,
+        notice_message=locale_for(request)("character.notice.change_rejected"),
+    )
 
 
 @router.post("/character/quick_adjust", response_class=HTMLResponse)
@@ -316,7 +367,11 @@ def character_quick_adjust(
         conn.commit()
     finally:
         conn.close()
-    return _render_panel(request, session_id=session_id, notice_message="已应用快速改值。")
+    return _render_panel(
+        request,
+        session_id=session_id,
+        notice_message=locale_for(request)("character.notice.adjustment_applied"),
+    )
 
 
 @router.post("/character/quick_state", response_class=HTMLResponse)
@@ -363,4 +418,8 @@ def character_quick_state(
         conn.commit()
     finally:
         conn.close()
-    return _render_panel(request, session_id=session_id, notice_message="已保存状态、物品与备注。")
+    return _render_panel(
+        request,
+        session_id=session_id,
+        notice_message=locale_for(request)("character.notice.state_saved"),
+    )

@@ -1,21 +1,21 @@
 {% extends "base.html" %}
 
-{% block title %}剧情线 - one_person_dnd{% endblock %}
+{% block title %}{{ t('threads.page_title') }} - one_person_dnd{% endblock %}
 
 {% block content %}
   <div class="page-title-row">
     <div>
-      <div class="page-hero__eyebrow">追踪未完的事</div>
-      <h1 class="page-title-row__title">剧情线</h1>
+      <div class="page-hero__eyebrow">{{ t('threads.eyebrow') }}</div>
+      <h1 class="page-title-row__title">{{ t('threads.page_title') }}</h1>
     </div>
-    <div class="page-actions"><a class="btn btn--ghost" href="/game">回到游玩</a></div>
+    <div class="page-actions"><a class="btn btn--ghost" href="/game">{{ t('threads.back_to_play') }}</a></div>
   </div>
 
   <section class="card management-section">
     <div class="management-section__head">
       <div>
-        <div class="card__title">进行中的剧情线</div>
-        <div class="muted">把仍需追查、兑现或选择的事情留在这里。</div>
+        <div class="card__title">{{ t('threads.open.heading') }}</div>
+        <div class="muted">{{ t('threads.open.hint') }}</div>
       </div>
       <span class="count-badge">{{ open_threads|length }}</span>
     </div>
@@ -26,89 +26,89 @@
           <article class="thread-card">
             <div class="thread-card__head">
               <div>
-                <div class="thread-card__priority">优先级 {{ thread.priority }}</div>
+                <div class="thread-card__priority">{{ t('threads.priority_value', value=thread.priority) }}</div>
                 <h2>{{ thread.title }}</h2>
               </div>
               <form method="post" action="/threads/close">
                 <input type="hidden" name="thread_id" value="{{ thread.id }}" />
-                <button class="btn btn--ghost" type="submit">标记为已结束</button>
+                <button class="btn btn--ghost" type="submit">{{ t('threads.close') }}</button>
               </form>
             </div>
             {% if thread.summary %}<p class="thread-card__summary">{{ thread.summary }}</p>{% endif %}
             {% if thread.next_step %}
-              <div class="thread-card__next"><span>下一步</span>{{ thread.next_step }}</div>
+              <div class="thread-card__next"><span>{{ t('threads.next_step') }}</span>{{ thread.next_step }}</div>
             {% endif %}
             {% if thread.tags %}<div class="tag-line">{{ thread.tags }}</div>{% endif %}
 
             <details class="advanced thread-card__edit">
-              <summary>编辑剧情线</summary>
+              <summary>{{ t('threads.edit') }}</summary>
               <form class="form" method="post" action="/threads/update">
                 <input type="hidden" name="thread_id" value="{{ thread.id }}" />
                 <div class="field-grid field-grid--two">
                   <label class="label" for="thread-title-{{ thread.id }}">
-                    标题
+                    {{ t('threads.title') }}
                     <input id="thread-title-{{ thread.id }}" class="input" name="title" value="{{ thread.title }}" required autocomplete="off" />
                   </label>
                   <label class="label" for="thread-priority-{{ thread.id }}">
-                    优先级
+                    {{ t('threads.priority') }}
                     <input id="thread-priority-{{ thread.id }}" class="input" type="number" name="priority" value="{{ thread.priority }}" autocomplete="off" />
                   </label>
                 </div>
                 <label class="label" for="thread-summary-{{ thread.id }}">
-                  当前进展
+                  {{ t('threads.progress') }}
                   <textarea id="thread-summary-{{ thread.id }}" class="input textarea" name="summary">{{ thread.summary or "" }}</textarea>
                 </label>
                 <label class="label" for="thread-next-{{ thread.id }}">
-                  下一步
+                  {{ t('threads.next_step') }}
                   <textarea id="thread-next-{{ thread.id }}" class="input textarea" name="next_step">{{ thread.next_step or "" }}</textarea>
                 </label>
                 <label class="label" for="thread-tags-{{ thread.id }}">
-                  标签
+                  {{ t('threads.tags') }}
                   <input id="thread-tags-{{ thread.id }}" class="input" name="tags" value="{{ thread.tags or '' }}" autocomplete="off" />
                 </label>
-                <button class="btn" type="submit">保存修改</button>
+                <button class="btn" type="submit">{{ t('threads.save') }}</button>
               </form>
-              <div class="muted technical-footnote">剧情线编号：{{ thread.id }}</div>
+              <div class="muted technical-footnote">{{ t('threads.id', id=thread.id) }}</div>
             </details>
           </article>
         {% endfor %}
       </div>
     {% else %}
-      <div class="empty-state">目前没有进行中的剧情线。冒险仍然可以自由推进。</div>
+      <div class="empty-state">{{ t('threads.open.empty') }}</div>
     {% endif %}
 
     <details class="advanced management-create">
-      <summary>添加一条剧情线</summary>
+      <summary>{{ t('threads.add_summary') }}</summary>
       <form class="form" method="post" action="/threads/new">
         <div class="field-grid field-grid--two">
           <label class="label" for="new-thread-title">
-            标题
-            <input id="new-thread-title" class="input" name="title" required autocomplete="off" placeholder="例如：找到失踪的学徒" />
+            {{ t('threads.title') }}
+            <input id="new-thread-title" class="input" name="title" required autocomplete="off" placeholder="{{ t('threads.title_placeholder') }}" />
           </label>
           <label class="label" for="new-thread-priority">
-            优先级
+            {{ t('threads.priority') }}
             <input id="new-thread-priority" class="input" type="number" name="priority" value="0" autocomplete="off" />
           </label>
         </div>
         <label class="label" for="new-thread-summary">
-          当前进展
-          <textarea id="new-thread-summary" class="input textarea" name="summary" placeholder="一句话说明事情进行到哪里……"></textarea>
+          {{ t('threads.progress') }}
+          <textarea id="new-thread-summary" class="input textarea" name="summary" placeholder="{{ t('threads.progress_placeholder') }}"></textarea>
         </label>
         <label class="label" for="new-thread-next">
-          下一步
-          <textarea id="new-thread-next" class="input textarea" name="next_step" placeholder="例如：去乌鸦酒馆问老板娘"></textarea>
+          {{ t('threads.next_step') }}
+          <textarea id="new-thread-next" class="input textarea" name="next_step" placeholder="{{ t('threads.next_placeholder') }}"></textarea>
         </label>
         <label class="label" for="new-thread-tags">
-          标签
-          <input id="new-thread-tags" class="input" name="tags" autocomplete="off" placeholder="主线,支线,某个角色" />
+          {{ t('threads.tags') }}
+          <input id="new-thread-tags" class="input" name="tags" autocomplete="off" placeholder="{{ t('threads.tags_placeholder') }}" />
         </label>
-        <button class="btn" type="submit">添加剧情线</button>
+        <button class="btn" type="submit">{{ t('threads.add') }}</button>
       </form>
     </details>
   </section>
 
   <details class="card closed-thread-section">
-    <summary>已结束的剧情线（{{ closed_threads|length }}）</summary>
+    <summary>{{ t('threads.closed_summary', count=closed_threads|length) }}</summary>
     {% if closed_threads %}
       <div class="thread-library thread-library--closed">
         {% for thread in closed_threads %}
@@ -120,19 +120,19 @@
               </div>
               <form method="post" action="/threads/reopen">
                 <input type="hidden" name="thread_id" value="{{ thread.id }}" />
-                <button class="btn btn--ghost" type="submit">重新开启</button>
+                <button class="btn btn--ghost" type="submit">{{ t('threads.reopen') }}</button>
               </form>
             </div>
           </article>
         {% endfor %}
       </div>
     {% else %}
-      <div class="muted muted--compact-spaced">还没有已结束的剧情线。</div>
+      <div class="muted muted--compact-spaced">{{ t('threads.closed.empty') }}</div>
     {% endif %}
   </details>
 
   <details class="advanced advanced--compact">
-    <summary>当前章节技术信息</summary>
-    <div class="muted">章节编号：{{ session_id }}</div>
+    <summary>{{ t('threads.session_technical') }}</summary>
+    <div class="muted">{{ t('threads.session_id', id=session_id) }}</div>
   </details>
 {% endblock %}

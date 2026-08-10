@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import manual_change_logs, session_cheats
 from one_person_dnd.paths import ensure_app_dirs
+from one_person_dnd.web.localization import locale_for
 from one_person_dnd.web.routes.common import get_current_campaign_session, templates
 
 router = APIRouter()
@@ -60,5 +61,5 @@ def cheats_save(
     return templates.TemplateResponse(
         request=request,
         name="partials/save_ok.html",
-        context={"message": "金手指设置已保存"},
+        context={"message": locale_for(request)("cheats.notice.saved")},
     )

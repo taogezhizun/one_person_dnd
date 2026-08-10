@@ -7,15 +7,15 @@
   {% endif %}
 >
   <div class="chat__msg chat__msg--user">
-    <div class="chat__meta">你</div>
+    <div class="chat__meta">{{ t('game.turn.you') }}</div>
     <div class="chat__content pre">{{ turn.player_text | e }}</div>
     {% if turn.action_assessment %}
       <div class="action-assessment">
-        <div class="muted action-assessment__label">系统判定</div>
+        <div class="muted action-assessment__label">{{ t('game.turn.system_judgment') }}</div>
         <div class="assessment-pills">
           {% if turn.action_assessment.action_type %}
             <span class="assessment-pill" title="{{ turn.action_assessment.action_type }}">
-              行动：{{ action_type_labels.get(turn.action_assessment.action_type, turn.action_assessment.action_type) }}
+              {{ t('game.turn.action', action=action_type_labels.get(turn.action_assessment.action_type, turn.action_assessment.action_type)) }}
             </span>
           {% endif %}
           {% for s in turn.action_assessment.signals or [] %}
@@ -30,27 +30,23 @@
           {% set check = adjudication.check %}
           <div class="adjudication-summary" data-adjudication-summary>
             <div>
-              <strong>{{ "成功" if check.outcome == "success" else "失败" }}</strong>
+              <strong>{{ t('game.turn.success') if check.outcome == "success" else t('game.turn.failure') }}</strong>
               · {{ check.ability }}{% if check.skill %} / {{ check.skill }}{% endif %}
               · DC {{ check.dc }}
             </div>
             <div class="muted">
-              d20 [{{ check.d20s | join(", ") }}] 取 {{ check.selected_d20 }}
-              {{ "%+d"|format(check.ability_modifier) }} 属性
-              {{ "%+d"|format(check.proficiency_modifier) }} 熟练
-              {{ "%+d"|format(check.circumstance_modifier) }} 情境
-              = {{ check.total }}
-              {% if check.roll_mode != "normal" %}· {{ "优势" if check.roll_mode == "advantage" else "劣势" }}{% endif %}
-              {% if check.natural_face %}· {{ "自然 20" if check.natural_face == "natural_20" else "自然 1" }}{% endif %}
+              {{ t('game.turn.roll_formula', faces=check.d20s|join(', '), selected=check.selected_d20, ability="%+d"|format(check.ability_modifier), proficiency="%+d"|format(check.proficiency_modifier), circumstance="%+d"|format(check.circumstance_modifier), total=check.total) }}
+              {% if check.roll_mode != "normal" %}· {{ t('game.turn.advantage') if check.roll_mode == "advantage" else t('game.turn.disadvantage') }}{% endif %}
+              {% if check.natural_face %}· {{ t('game.turn.natural_20') if check.natural_face == "natural_20" else t('game.turn.natural_1') }}{% endif %}
             </div>
-            {% if check.intent %}<div class="muted">意图：{{ check.intent }}</div>{% endif %}
+            {% if check.intent %}<div class="muted">{{ t('game.turn.intent', intent=adjudication_intent_labels.get(check.intent, check.intent)) }}</div>{% endif %}
           </div>
         {% endif %}
       </div>
     {% endif %}
     {% if turn.dice_events and turn.dice_events|length > 0 and not (turn.action_assessment and turn.action_assessment.adjudication and turn.action_assessment.adjudication.check) %}
       <div class="dice-events">
-        <div class="muted">系统掷骰</div>
+        <div class="muted">{{ t('game.turn.system_roll') }}</div>
         <ul class="dice-events__list">
           {% for e in turn.dice_events %}
             <li>
@@ -75,7 +71,7 @@
 
     {% if turn.dm.choices %}
       <details class="turn-choice-history" data-turn-choice-history>
-        <summary>当时的行动灵感</summary>
+        <summary>{{ t('game.turn.choice_history') }}</summary>
         <div class="choices__list">
           {% for c in turn.dm.choices %}
             <button

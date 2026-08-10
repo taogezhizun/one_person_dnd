@@ -1,7 +1,8 @@
 {% set modifier_text = "%+d"|format(event.modifier) if event.modifier else "+0" %}
-{% set roll_context = "掷骰结果：" ~ event.expr ~ " => [" ~ (event.rolls | join(', ')) ~ "] " ~ modifier_text ~ " = " ~ event.total %}
+{% set roll_expression = event.expr ~ " => [" ~ (event.rolls | join(', ')) ~ "] " ~ modifier_text ~ " = " ~ event.total %}
+{% set roll_context = t('game.roll.context', expression=roll_expression) %}
 <div class="notice roll-result">
-  <div class="roll-result__title">掷骰结果</div>
+  <div class="roll-result__title">{{ t('game.roll.result_title') }}</div>
   <div class="muted roll-result__formula">
     {{ event.expr }} =&gt; [{{ event.rolls | join(', ') }}]
     {{ modifier_text }}
@@ -9,7 +10,7 @@
   </div>
   <div class="roll-result__actions">
     <button class="btn btn--ghost" type="button" data-roll-context="{{ roll_context }}">
-      带入本回合线索
+      {{ t('game.roll.use_context') }}
     </button>
   </div>
 </div>

@@ -1,20 +1,20 @@
 {% extends "base.html" %}
 
-{% block title %}剧情摘要 - one_person_dnd{% endblock %}
+{% block title %}{{ t('story.page_title') }} - one_person_dnd{% endblock %}
 
 {% block content %}
-  <h1>故事摘要</h1>
-  <div class="muted">当前章节</div>
+  <h1>{{ t('story.heading') }}</h1>
+  <div class="muted">{{ t('story.current_chapter') }}</div>
 
   <div class="card">
-    <div class="card__title">摘要列表</div>
+    <div class="card__title">{{ t('story.list_heading') }}</div>
     {% if entries %}
       <table class="table">
         <thead>
           <tr>
-            <th>场景</th>
-            <th>摘要</th>
-            <th>时间</th>
+            <th>{{ t('story.scene') }}</th>
+            <th>{{ t('story.summary') }}</th>
+            <th>{{ t('story.time') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -28,7 +28,7 @@
         </tbody>
       </table>
     {% else %}
-      <div class="muted">还没有摘要（后续会在回合累计后自动生成）。</div>
+      <div class="muted">{{ t('story.empty') }}</div>
     {% endif %}
   </div>
 {% endblock %}

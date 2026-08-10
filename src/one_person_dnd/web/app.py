@@ -3,31 +3,35 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from one_person_dnd.db import init_db
 from one_person_dnd.paths import ensure_app_dirs
+from one_person_dnd.web.localization import LocaleMiddleware, locale_for
 from one_person_dnd.web.security import UnsafeWriteProtectionMiddleware
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="one_person_dnd")
     app.add_middleware(UnsafeWriteProtectionMiddleware)
+    app.add_middleware(LocaleMiddleware)
     # FastAPI Form(...) depends on python-multipart (import name: multipart).
     # If missing, routes registration will crash at import time; so we fail gracefully.
     if importlib.util.find_spec("multipart") is None:
         @app.get("/", response_class=HTMLResponse)
-        def _missing_multipart() -> HTMLResponse:
+        def _missing_multipart(request: Request) -> HTMLResponse:
+            ui = locale_for(request)
             return HTMLResponse(
-                """
+                f"""
                 <html><head><meta charset="utf-8"><title>one_person_dnd</title></head>
                 <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding: 24px;">
-                  <h2>依赖缺失：python-multipart</h2>
-                  <p>本项目使用 FastAPI 表单（Form），需要安装 <code>python-multipart</code>。</p>
+                  <h2>{ui("errors.missing_dependency_title")}</h2>
+                  <p>{ui("errors.missing_dependency_body")}</p>
+                  <p>{ui("errors.missing_dependency_install")}:</p>
                   <pre>pip install -r requirements.txt</pre>
-                  <p>安装完成后请重新启动：<code>python -m one_person_dnd</code></p>
+                  <p>{ui("errors.missing_dependency_restart")}: <code>python -m one_person_dnd</code></p>
                 </body></html>
                 """.strip()
             )

@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 
-{% block title %}冒险与章节 - one_person_dnd{% endblock %}
+{% block title %}{{ t('saves.page_title') }} - one_person_dnd{% endblock %}
 
 {% block content %}
   <div class="page-title-row">
     <div>
-      <div class="page-hero__eyebrow">存档书架</div>
-      <h1 class="page-title-row__title">冒险与章节</h1>
+      <div class="page-hero__eyebrow">{{ t('saves.eyebrow') }}</div>
+      <h1 class="page-title-row__title">{{ t('saves.page_title') }}</h1>
     </div>
     <div class="page-actions">
-      <a class="btn" href="/game">继续当前章节</a>
-      <a class="btn btn--ghost" href="/new">创建完整新冒险</a>
+      <a class="btn" href="/game">{{ t('saves.continue_current') }}</a>
+      <a class="btn btn--ghost" href="/new">{{ t('saves.create_full_adventure') }}</a>
     </div>
   </div>
 
@@ -18,8 +18,8 @@
     <section class="card management-section">
       <div class="management-section__head">
         <div>
-          <div class="card__title">全部冒险</div>
-          <div class="muted">选择后，右侧会显示它的章节。</div>
+          <div class="card__title">{{ t('saves.campaigns.heading') }}</div>
+          <div class="muted">{{ t('saves.campaigns.hint') }}</div>
         </div>
         <span class="count-badge">{{ campaigns|length }}</span>
       </div>
@@ -31,41 +31,41 @@
               <div class="campaign-card__head">
                 <div>
                   <div class="campaign-card__title">{{ campaign.name }}</div>
-                  <div class="muted">创建于 {{ campaign.created_at }}</div>
+                  <div class="muted">{{ t('saves.campaign.created_at', value=campaign.created_at) }}</div>
                 </div>
-                {% if campaign.id == current_campaign_id %}<span class="active-badge">当前冒险</span>{% endif %}
+                {% if campaign.id == current_campaign_id %}<span class="active-badge">{{ t('saves.campaign.current') }}</span>{% endif %}
               </div>
               <div class="row row--compact-spaced">
                 {% if campaign.id != current_campaign_id %}
                   <form method="post" action="/saves/campaign/select">
                     <input type="hidden" name="campaign_id" value="{{ campaign.id }}" />
-                    <button class="btn btn--ghost" type="submit">查看章节</button>
+                    <button class="btn btn--ghost" type="submit">{{ t('saves.campaign.view_chapters') }}</button>
                   </form>
                 {% endif %}
                 <form method="post" action="/saves/campaign/enter">
                   <input type="hidden" name="campaign_id" value="{{ campaign.id }}" />
-                  <button class="btn {% if campaign.id == current_campaign_id %}btn--ghost{% endif %}" type="submit">进入冒险</button>
+                  <button class="btn {% if campaign.id == current_campaign_id %}btn--ghost{% endif %}" type="submit">{{ t('saves.campaign.enter') }}</button>
                 </form>
               </div>
               <details class="advanced advanced--compact">
-                <summary>技术信息</summary>
-                <div class="muted">冒险编号：{{ campaign.id }}</div>
+                <summary>{{ t('saves.technical_info') }}</summary>
+                <div class="muted">{{ t('saves.campaign.id', id=campaign.id) }}</div>
               </details>
             </article>
           {% endfor %}
         </div>
       {% else %}
-        <div class="empty-state">还没有冒险。用“创建完整新冒险”开始第一段旅程。</div>
+        <div class="empty-state">{{ t('saves.campaigns.empty') }}</div>
       {% endif %}
 
       <details class="advanced management-create">
-        <summary>只创建一个空白冒险</summary>
+        <summary>{{ t('saves.campaign.create_blank_summary') }}</summary>
         <form class="form" method="post" action="/saves/campaign/new">
           <label class="label" for="blank-adventure-name">
-            冒险名称
-            <input id="blank-adventure-name" class="input" name="name" required autocomplete="off" placeholder="例如：乌鸦港疑云" />
+            {{ t('saves.campaign.name') }}
+            <input id="blank-adventure-name" class="input" name="name" required autocomplete="off" placeholder="{{ t('saves.campaign.name_placeholder') }}" />
           </label>
-          <button class="btn" type="submit">创建空白冒险</button>
+          <button class="btn" type="submit">{{ t('saves.campaign.create_blank') }}</button>
         </form>
       </details>
     </section>
@@ -73,8 +73,8 @@
     <aside class="card management-section">
       <div class="management-section__head">
         <div>
-          <div class="card__title">当前冒险的章节</div>
-          <div class="muted">章节保存独立的故事进度、角色状态与快照。</div>
+          <div class="card__title">{{ t('saves.chapters.heading') }}</div>
+          <div class="muted">{{ t('saves.chapters.hint') }}</div>
         </div>
         <span class="count-badge">{{ sessions|length }}</span>
       </div>
@@ -86,65 +86,65 @@
               <div class="session-card__head">
                 <div>
                   <div class="session-card__title">{{ session.title }}</div>
-                  <div class="muted">{{ session.current_scene or "场景未设置" }}</div>
+                  <div class="muted">{{ session.current_scene or t('saves.chapter.scene_unset') }}</div>
                 </div>
-                {% if session.id == current_session_id %}<span class="active-badge">当前章节</span>{% endif %}
+                {% if session.id == current_session_id %}<span class="active-badge">{{ t('saves.chapter.current') }}</span>{% endif %}
               </div>
               <div class="session-card__meta">
-                <span>最近游玩 {{ session.last_played_at or session.created_at }}</span>
-                <span>{{ session.snapshot_count or 0 }} 个快照</span>
+                <span>{{ t('saves.chapter.last_played', value=session.last_played_at or session.created_at) }}</span>
+                <span>{{ t('saves.snapshot.count', count=session.snapshot_count or 0) }}</span>
               </div>
               <div class="row row--compact-spaced">
                 {% if session.id != current_session_id %}
                   <form method="post" action="/saves/session/select">
                     <input type="hidden" name="session_id" value="{{ session.id }}" />
-                    <button class="btn btn--ghost" type="submit">设为当前章节</button>
+                    <button class="btn btn--ghost" type="submit">{{ t('saves.chapter.set_current') }}</button>
                   </form>
                 {% endif %}
                 <form method="post" action="/saves/session/enter">
                   <input type="hidden" name="session_id" value="{{ session.id }}" />
-                  <button class="btn {% if session.id == current_session_id %}btn--ghost{% endif %}" type="submit">进入章节</button>
+                  <button class="btn {% if session.id == current_session_id %}btn--ghost{% endif %}" type="submit">{{ t('saves.chapter.enter') }}</button>
                 </form>
               </div>
 
               <details class="advanced snapshot-manager">
-                <summary>快照与故事分支 · {{ session.snapshot_count or 0 }} 个</summary>
-                <div class="safety-note">恢复快照会把整个会话（场景、角色卡、回合记录、故事记忆、剧情线）都倒回到快照当时的状态；系统会先自动保存当前状态为一份安全快照，误操作后可以再次恢复它撤回。</div>
+                <summary>{{ t('saves.snapshots.summary', count=session.snapshot_count or 0) }}</summary>
+                <div class="safety-note">{{ t('saves.snapshots.safety_note') }}</div>
                 <form class="form form--compact" method="post" action="/saves/session/snapshot">
                   <input type="hidden" name="session_id" value="{{ session.id }}" />
                   <label class="label" for="snapshot-name-{{ session.id }}">
-                    新快照名称
-                    <input id="snapshot-name-{{ session.id }}" class="input" name="snapshot_name" autocomplete="off" placeholder="例如：进入钟楼前" />
+                    {{ t('saves.snapshot.new_name') }}
+                    <input id="snapshot-name-{{ session.id }}" class="input" name="snapshot_name" autocomplete="off" placeholder="{{ t('saves.snapshot.name_placeholder') }}" />
                   </label>
-                  <button class="btn btn--ghost" type="submit">保存当前状态</button>
+                  <button class="btn btn--ghost" type="submit">{{ t('saves.snapshot.save_current') }}</button>
                 </form>
 
                 {% set snapshots = snapshots_map.get(session.id, []) %}
                 {% if snapshots %}
-                  <div class="muted muted--compact-spaced">本章共 {{ session.snapshot_count or snapshots|length }} 个快照；下方显示最近 {{ snapshots|length }} 个。</div>
+                  <div class="muted muted--compact-spaced">{{ t('saves.snapshot.recent_counts', total=session.snapshot_count or snapshots|length, shown=snapshots|length) }}</div>
                   <div class="snapshot-stack">
                     {% for snapshot in snapshots %}
                       <article class="snapshot-card">
                         <div>
                           <strong>{{ snapshot.snapshot_name }}</strong>
-                          <div class="muted">回合 {{ snapshot.turn_index }} · {{ snapshot.created_at }}</div>
+                          <div class="muted">{{ t('saves.snapshot.turn_meta', index=snapshot.turn_index, created_at=snapshot.created_at) }}</div>
                         </div>
                         <div class="snapshot-card__actions">
                           <form
                             method="post"
                             action="/saves/session/restore"
-                            data-confirm-message="确认恢复到“{{ snapshot.snapshot_name }}”吗？这会连同回合记录、故事记忆和剧情线一起倒回到该时间点，之后的内容会被替换；系统会先创建一份恢复前自动备份，可用它撤回。"
+                            data-confirm-message="{{ t('saves.snapshot.restore_confirm', name=snapshot.snapshot_name) }}"
                           >
                             <input type="hidden" name="session_id" value="{{ session.id }}" />
                             <input type="hidden" name="snapshot_id" value="{{ snapshot.id }}" />
-                            <button class="btn btn--ghost" type="submit">恢复到这里</button>
+                            <button class="btn btn--ghost" type="submit">{{ t('saves.snapshot.restore_here') }}</button>
                           </form>
                           <form method="post" action="/saves/session/fork" class="inline-form">
                             <input type="hidden" name="session_id" value="{{ session.id }}" />
                             <input type="hidden" name="snapshot_id" value="{{ snapshot.id }}" />
-                            <label class="sr-only" for="fork-title-{{ snapshot.id }}">故事分支标题</label>
-                            <input id="fork-title-{{ snapshot.id }}" class="input input--compact" name="fork_title" autocomplete="off" placeholder="故事分支标题（可选）" />
-                            <button class="btn btn--ghost" type="submit">创建故事分支</button>
+                            <label class="sr-only" for="fork-title-{{ snapshot.id }}">{{ t('saves.fork.title') }}</label>
+                            <input id="fork-title-{{ snapshot.id }}" class="input input--compact" name="fork_title" autocomplete="off" placeholder="{{ t('saves.fork.title_placeholder') }}" />
+                            <button class="btn btn--ghost" type="submit">{{ t('saves.fork.create') }}</button>
                           </form>
                         </div>
                       </article>
@@ -152,35 +152,36 @@
                   </div>
                 {% else %}
                   <div class="empty-state">
-                    <strong>本章还没有快照。</strong>
-                    <div class="muted">为当前状态命名并保存后，就能从这里恢复或创建故事分支。</div>
+                    <strong>{{ t('saves.snapshots.empty_title') }}</strong>
+                    <div class="muted">{{ t('saves.snapshots.empty_hint') }}</div>
                   </div>
                 {% endif %}
               </details>
 
               <details class="advanced advanced--compact">
-                <summary>技术信息</summary>
-                <div class="muted">章节编号：{{ session.id }} · 状态：{{ session.status or "active" }}</div>
+                <summary>{{ t('saves.technical_info') }}</summary>
+                {% set session_status = session.status or 'active' %}
+                <div class="muted">{{ t('saves.chapter.technical', id=session.id, status=t('saves.status.active') if session_status == 'active' else session_status) }}</div>
               </details>
             </article>
           {% endfor %}
         </div>
       {% else %}
-        <div class="empty-state">当前冒险还没有章节。</div>
+        <div class="empty-state">{{ t('saves.chapters.empty') }}</div>
       {% endif %}
 
       <details class="advanced management-create">
-        <summary>添加一个空白章节</summary>
+        <summary>{{ t('saves.chapter.add_blank_summary') }}</summary>
         <form class="form" method="post" action="/saves/session/new">
           <label class="label" for="new-chapter-title">
-            章节标题
-            <input id="new-chapter-title" class="input" name="title" required autocomplete="off" placeholder="例如：第一章·酒馆里的陌生人" />
+            {{ t('saves.chapter.title') }}
+            <input id="new-chapter-title" class="input" name="title" required autocomplete="off" placeholder="{{ t('saves.chapter.title_placeholder') }}" />
           </label>
           <label class="label" for="new-chapter-scene">
-            开场场景
-            <input id="new-chapter-scene" class="input" name="current_scene" value="起始" autocomplete="off" />
+            {{ t('saves.chapter.opening_scene') }}
+            <input id="new-chapter-scene" class="input" name="current_scene" autocomplete="off" placeholder="{{ t('saves.chapter.start_scene_placeholder') }}" />
           </label>
-          <button class="btn" type="submit">创建空白章节</button>
+          <button class="btn" type="submit">{{ t('saves.chapter.create_blank') }}</button>
         </form>
       </details>
     </aside>

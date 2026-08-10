@@ -49,24 +49,30 @@ def build_context_pack(
         campaign_id=action.campaign_id,
         tags=action.manual_tags or None,
     )
-    for idx, block in enumerate(world_blocks):
+    for idx, selected in enumerate(world_blocks):
         blocks.append(
             ContextBlock(
                 kind="world_bible",
                 title=f"WorldBible {idx + 1}",
-                content=block,
+                content=selected.content,
                 source="world_bible",
                 priority=80,
+                preview_data=selected.preview_data,
             )
         )
 
     srow = sessions.get_session_sidebar(conn, action.session_id)
     if srow:
         scene_parts = []
+        scene_preview: dict[str, object] = {"type": "scene"}
         if (srow["title"] or "").strip():
-            scene_parts.append(f"会话：{(srow['title'] or '').strip()}")
+            session_title = (srow["title"] or "").strip()
+            scene_parts.append(f"会话：{session_title}")
+            scene_preview["session_title"] = session_title
         if (srow["current_scene"] or "").strip():
-            scene_parts.append(f"当前场景：{(srow['current_scene'] or '').strip()}")
+            current_scene = (srow["current_scene"] or "").strip()
+            scene_parts.append(f"当前场景：{current_scene}")
+            scene_preview["current_scene"] = current_scene
         if scene_parts:
             blocks.append(
                 ContextBlock(
@@ -75,6 +81,7 @@ def build_context_pack(
                     content="\n".join(scene_parts),
                     source="sessions",
                     priority=90,
+                    preview_data=scene_preview,
                 )
             )
         if (srow["session_state"] or "").strip():
@@ -98,6 +105,23 @@ def build_context_pack(
                 content=character_prompt,
                 source="character_sheets",
                 priority=95,
+                preview_data={
+                    "type": "character_summary",
+                    "name": character_summary.name,
+                    "race": character_summary.race,
+                    "role": character_summary.role,
+                    "background": character_summary.background,
+                    "goal": character_summary.goal,
+                    "hp": character_summary.hp,
+                    "max_hp": character_summary.max_hp,
+                    "gold": character_summary.gold,
+                    "level": character_summary.level,
+                    "inventory": list(character_summary.inventory),
+                    "conditions": list(character_summary.conditions),
+                    "abilities": dict(character_summary.abilities),
+                    "skill_proficiencies": list(character_summary.skill_proficiencies),
+                    "notes": character_summary.notes,
+                },
             )
         )
 
@@ -145,26 +169,28 @@ def build_context_pack(
         )
 
     thread_blocks = select_thread_blocks(conn, session_id=action.session_id)
-    for idx, block in enumerate(thread_blocks):
+    for idx, selected in enumerate(thread_blocks):
         blocks.append(
             ContextBlock(
                 kind="plot_threads",
                 title=f"Open Thread {idx + 1}",
-                content=block,
+                content=selected.content,
                 source="plot_threads",
                 priority=70,
+                preview_data=selected.preview_data,
             )
         )
 
     story_blocks = select_story_blocks(conn, session_id=action.session_id, limit=memory_cfg.story_journal_for_prompt)
-    for idx, block in enumerate(story_blocks):
+    for idx, selected in enumerate(story_blocks):
         blocks.append(
             ContextBlock(
                 kind="story_memory",
                 title=f"Story Memory {idx + 1}",
-                content=block,
+                content=selected.content,
                 source="story_journal",
                 priority=50,
+                preview_data=selected.preview_data,
             )
         )
 
@@ -200,6 +226,16 @@ def build_context_pack(
                 ]
             )
     assessment_text = "\n".join(assessment_lines).strip()
+    assessment_preview: dict[str, object] = {
+        "type": "action_assessment",
+        "action_type": assessment.action_type,
+        "signals": list(assessment.signals),
+        "warnings": list(assessment.warnings),
+    }
+    if adjudication is not None:
+        assessment_preview["status"] = adjudication.status
+        if adjudication.check is not None:
+            assessment_preview["check"] = adjudication.check.to_dict()
     blocks.append(
         ContextBlock(
             kind="action_assessment",
@@ -207,6 +243,7 @@ def build_context_pack(
             content=assessment_text,
             source="action_judge",
             priority=85,
+            preview_data=assessment_preview,
         )
     )
 
@@ -287,24 +324,35 @@ def _build_recalled_context(included_blocks: list[ContextBlock], skipped_blocks:
             block,
             status="skipped",
             reason=_CONTEXT_BUDGET_SKIP_REASON,
+            reason_code="budget_trimmed",
         )
         if entry:
             recalled.append(entry)
     return recalled
 
 
-def _build_recalled_context_entry(block: ContextBlock, *, status: str, reason: str | None = None) -> dict | None:
+def _build_recalled_context_entry(
+    block: ContextBlock,
+    *,
+    status: str,
+    reason: str | None = None,
+    reason_code: str | None = None,
+) -> dict | None:
     content = (block.content or "").strip()
     if not content:
         return None
-    return {
+    entry = {
         "kind": block.kind,
         "title": block.title,
         "source": block.source,
         "status": status,
         "reason": reason or _RECALL_REASONS.get(block.kind, "作为本回合上下文的一部分注入。"),
+        "reason_code": reason_code or (block.kind if block.kind in _RECALL_REASONS else "default"),
         "preview": _truncate_context_preview(content, 140),
     }
+    if block.preview_data is not None:
+        entry["preview_data"] = dict(block.preview_data)
+    return entry
 
 
 def _truncate_context_preview(text: str, max_chars: int) -> str:

@@ -27,6 +27,12 @@ from one_person_dnd.web.routes.common import get_current_campaign_session, load_
 
 router = APIRouter()
 
+_DEFAULT_SESSION_TITLE = "默认会话"
+_DEFAULT_SCENE = "起始"
+_MANUAL_SNAPSHOT_NAME = "手动快照"
+_UNNAMED_SNAPSHOT_NAME = "未命名快照"
+_FORK_BASE_NAME = "分叉"
+
 
 def _capture_narrative_json(conn, *, session_id: int) -> str:
     """
@@ -238,7 +244,10 @@ def saves_campaign_new(name: str = Form(...)) -> RedirectResponse:
     try:
         campaign_id = campaigns.create_campaign(conn, name.strip())
         session_id = sessions.create_session(
-            conn, campaign_id=campaign_id, title="默认会话", current_scene="起始"
+            conn,
+            campaign_id=campaign_id,
+            title=_DEFAULT_SESSION_TITLE,
+            current_scene=_DEFAULT_SCENE,
         )
         conn.commit()
     finally:
@@ -256,7 +265,10 @@ def saves_campaign_select(campaign_id: int = Form(...)) -> RedirectResponse:
         session_id = sessions.get_first_session_id(conn, campaign_id)
         if session_id is None:
             session_id = sessions.create_session(
-                conn, campaign_id=campaign_id, title="默认会话", current_scene="起始"
+                conn,
+                campaign_id=campaign_id,
+                title=_DEFAULT_SESSION_TITLE,
+                current_scene=_DEFAULT_SCENE,
             )
             conn.commit()
     finally:
@@ -274,7 +286,10 @@ def saves_campaign_enter(campaign_id: int = Form(...)) -> RedirectResponse:
         session_id = sessions.get_first_session_id(conn, campaign_id)
         if session_id is None:
             session_id = sessions.create_session(
-                conn, campaign_id=campaign_id, title="默认会话", current_scene="起始"
+                conn,
+                campaign_id=campaign_id,
+                title=_DEFAULT_SESSION_TITLE,
+                current_scene=_DEFAULT_SCENE,
             )
             conn.commit()
     finally:
@@ -285,7 +300,10 @@ def saves_campaign_enter(campaign_id: int = Form(...)) -> RedirectResponse:
 
 
 @router.post("/saves/session/new")
-def saves_session_new(title: str = Form(...), current_scene: str = Form("起始")) -> RedirectResponse:
+def saves_session_new(
+    title: str = Form(...),
+    current_scene: str = Form(""),
+) -> RedirectResponse:
     paths = ensure_app_dirs()
     campaign_id, _session_id = get_current_campaign_session()
     conn = get_connection(paths.db_path)
@@ -294,7 +312,7 @@ def saves_session_new(title: str = Form(...), current_scene: str = Form("起始"
             conn,
             campaign_id=campaign_id,
             title=title.strip(),
-            current_scene=(current_scene or "").strip(),
+            current_scene=(current_scene or "").strip() or _DEFAULT_SCENE,
         )
         conn.commit()
     finally:
@@ -315,7 +333,7 @@ def saves_session_snapshot(
     try:
         if not sessions.session_exists_under_campaign(conn, session_id=session_id, campaign_id=campaign_id):
             return RedirectResponse(url="/saves", status_code=303)
-        final_snapshot_name = (snapshot_name or "").strip() or "手动快照"
+        final_snapshot_name = (snapshot_name or "").strip() or _MANUAL_SNAPSHOT_NAME
         result = _create_session_snapshot(
             conn,
             session_id=session_id,
@@ -354,7 +372,7 @@ def saves_session_restore(
         snap = session_snapshots.get_snapshot(conn, snapshot_id=snapshot_id)
         if not snap or int(snap["session_id"]) != int(session_id):
             return RedirectResponse(url="/saves", status_code=303)
-        target_name = (snap.get("snapshot_name") or "未命名快照").strip()
+        target_name = (snap.get("snapshot_name") or _UNNAMED_SNAPSHOT_NAME).strip()
         safety_result = _create_session_snapshot(
             conn,
             session_id=session_id,
@@ -432,7 +450,8 @@ def saves_session_fork(
         if not snap or int(snap["session_id"]) != int(session_id):
             return RedirectResponse(url="/saves", status_code=303)
 
-        new_title = (fork_title or "").strip() or f"{(snap.get('snapshot_name') or '分叉').strip()}-分叉"
+        source_name = (snap.get("snapshot_name") or _FORK_BASE_NAME).strip()
+        new_title = (fork_title or "").strip() or f"{source_name}-分叉"
         new_session_id = sessions.create_session(
             conn,
             campaign_id=campaign_id,

@@ -68,44 +68,32 @@ def world_bible_create(
         if content_free.strip():
             lines.append(content_free.strip())
 
+        def append_field(label: str, value: str) -> None:
+            cleaned = value.strip()
+            if cleaned:
+                lines.append(f"{label}：{cleaned}")
+
         if t == "Location":
-            if location_geo.strip():
-                lines.append(f"地理：{location_geo.strip()}")
-            if location_factions.strip():
-                lines.append(f"势力：{location_factions.strip()}")
-            if location_resources.strip():
-                lines.append(f"资源：{location_resources.strip()}")
-            if location_dangers.strip():
-                lines.append(f"危险：{location_dangers.strip()}")
-            if location_points.strip():
-                lines.append(f"关键地点：{location_points.strip()}")
+            append_field("地理", location_geo)
+            append_field("势力", location_factions)
+            append_field("资源", location_resources)
+            append_field("危险", location_dangers)
+            append_field("关键地点", location_points)
         elif t == "NPC":
-            if npc_appearance.strip():
-                lines.append(f"外观：{npc_appearance.strip()}")
-            if npc_motivation.strip():
-                lines.append(f"动机：{npc_motivation.strip()}")
-            if npc_secret.strip():
-                lines.append(f"秘密：{npc_secret.strip()}")
-            if npc_relations.strip():
-                lines.append(f"关系：{npc_relations.strip()}")
-            if npc_combat.strip():
-                lines.append(f"战斗倾向：{npc_combat.strip()}")
+            append_field("外观", npc_appearance)
+            append_field("动机", npc_motivation)
+            append_field("秘密", npc_secret)
+            append_field("关系", npc_relations)
+            append_field("战斗倾向", npc_combat)
         elif t == "Organization":
-            if org_goal.strip():
-                lines.append(f"目标：{org_goal.strip()}")
-            if org_resources.strip():
-                lines.append(f"资源：{org_resources.strip()}")
-            if org_enemies.strip():
-                lines.append(f"敌对：{org_enemies.strip()}")
-            if org_influence.strip():
-                lines.append(f"影响范围：{org_influence.strip()}")
+            append_field("目标", org_goal)
+            append_field("资源", org_resources)
+            append_field("敌对", org_enemies)
+            append_field("影响范围", org_influence)
         elif t == "Rule":
-            if rule_hard_constraints.strip():
-                lines.append(f"硬约束：{rule_hard_constraints.strip()}")
-            if rule_magic.strip():
-                lines.append(f"魔法规则：{rule_magic.strip()}")
-            if rule_taboos.strip():
-                lines.append(f"禁忌：{rule_taboos.strip()}")
+            append_field("硬约束", rule_hard_constraints)
+            append_field("魔法规则", rule_magic)
+            append_field("禁忌", rule_taboos)
 
         content = "\n".join(lines).strip() or "（空）"
         world_bible.insert_world_bible_entry(

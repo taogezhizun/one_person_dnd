@@ -1,7 +1,7 @@
 {% if turn.critic_warnings or turn.response_warnings or turn.dm.dm_notes or turn.dm.memory_suggestions %}
   <article class="turn-diagnostic" data-turn-diagnostic="{{ turn.turn_index }}">
     <div class="turn-diagnostic__head">
-      <strong>回合 {{ turn.turn_index }}</strong>
+      <strong>{{ t('game.turn.index', index=turn.turn_index) }}</strong>
       {% if turn.created_at %}<span class="muted">{{ turn.created_at }}</span>{% endif %}
     </div>
     {% if turn.critic_warnings or turn.response_warnings %}
@@ -14,17 +14,17 @@
         {% endfor %}
       </div>
     {% else %}
-      <div class="muted">可玩性检查通过</div>
+      <div class="muted">{{ t('game.turn.playability_passed') }}</div>
     {% endif %}
     {% if turn.dm.dm_notes %}
       <details>
-        <summary>DM 内部备注</summary>
+        <summary>{{ t('game.turn.dm_notes') }}</summary>
         <div class="prose-copy">{{ turn.dm.dm_notes }}</div>
       </details>
     {% endif %}
     {% if turn.dm.memory_suggestions %}
       <details>
-        <summary>故事记忆建议</summary>
+        <summary>{{ t('game.turn.memory_suggestions') }}</summary>
         <div class="prose-copy">{{ turn.dm.memory_suggestions }}</div>
       </details>
     {% endif %}

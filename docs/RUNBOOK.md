@@ -78,6 +78,7 @@ PYTHONPATH=src python -m unittest discover -s tests -p "test*.py"
 
 Then check:
 
+- Use the top-nav language control to switch to English and back to Chinese. `/`, `/models`, `/new`, `/saves`, `/memory/world`, `/threads`, `/game`, HTMX partials, and turn-stream notices should keep one language per response; the selected language persists after reload. Existing campaign, character, world, and story content must remain byte-for-byte unchanged.
 - `/` loads and reports LLM configured when an active DB profile exists from `/models`, even if legacy `api_config.ini [llm]` is absent.
 - `/` leads with the active campaign, current chapter, character/DM state, recent story, and last-played time; `继续故事` is primary and `新冒险` is secondary.
 - `/models` lists existing profile cards before the folded creation area; DeepSeek appears first inside creation, custom OpenAI-compatible fields remain advanced, and blank edit keys preserve stored credentials without rendering them.

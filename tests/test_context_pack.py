@@ -57,6 +57,9 @@ class TestContextPack(unittest.TestCase):
             self.assertIn("action_assessment", kinds)
             self.assertEqual(pack.recalled_world[0]["title"], "乌鸦酒馆")
             self.assertEqual(pack.action_text, action.text)
+            world_block = next(block for block in pack.blocks if block.kind == "world_bible")
+            self.assertEqual(world_block.preview_data["type"], "world_bible")
+            self.assertEqual(world_block.preview_data["title"], "乌鸦酒馆")
         finally:
             conn.close()
             tmp.cleanup()
@@ -128,6 +131,8 @@ class TestContextPack(unittest.TestCase):
             thread_block = next(block for block in pack.blocks if block.kind == "plot_threads")
             self.assertIn(f"[#{thread_id} · P3]", thread_block.content)
             self.assertIn("失踪的信使", thread_block.content)
+            self.assertEqual(thread_block.preview_data["type"], "plot_thread")
+            self.assertEqual(thread_block.preview_data["id"], thread_id)
         finally:
             conn.close()
             tmp.cleanup()
@@ -222,11 +227,24 @@ class TestContextPack(unittest.TestCase):
             self.assertIn("Turn Extra Context", titles)
             self.assertIn("Action Assessment", titles)
             self.assertTrue(all(item["reason"] for item in recalled))
+            self.assertTrue(all(item["reason_code"] == item["kind"] for item in recalled))
             self.assertTrue(all(len(item["preview"]) <= 140 for item in recalled))
             world_item = next(item for item in recalled if item["title"] == "WorldBible 1")
             self.assertEqual(world_item["kind"], "world_bible")
             self.assertEqual(world_item["source"], "world_bible")
             self.assertIn("标签", world_item["reason"])
+            scene_item = next(item for item in recalled if item["title"] == "Scene")
+            self.assertEqual(
+                scene_item["preview_data"],
+                {
+                    "type": "scene",
+                    "session_title": "第一章",
+                    "current_scene": "乌鸦酒馆",
+                },
+            )
+            character_item = next(item for item in recalled if item["title"] == "Character Sheet")
+            self.assertEqual(character_item["preview_data"]["name"], "艾拉")
+            self.assertEqual(character_item["preview_data"]["conditions"], ["隐匿"])
         finally:
             conn.close()
             tmp.cleanup()
@@ -282,6 +300,8 @@ class TestContextPack(unittest.TestCase):
             self.assertTrue(skipped)
             self.assertEqual(skipped[0]["kind"], "story_memory")
             self.assertIn("预算", skipped[0]["reason"])
+            self.assertEqual(skipped[0]["reason_code"], "budget_trimmed")
+            self.assertEqual(skipped[0]["preview_data"]["type"], "story_memory")
             included = [item for item in pack.recalled_context if item.get("status") == "included"]
             self.assertTrue(any(item["kind"] == "character_state" for item in included))
         finally:

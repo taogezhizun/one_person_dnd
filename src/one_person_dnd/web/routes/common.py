@@ -9,15 +9,16 @@ from one_person_dnd.db import get_connection
 from one_person_dnd.db.repos import app_settings, campaigns, llm_profiles, sessions
 from one_person_dnd.paths import ensure_app_dirs
 from one_person_dnd.web.labels import register_jinja_globals
+from one_person_dnd.web.localization import localization_context
 
 WEB_DIR = Path(__file__).resolve().parents[1]
-templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
+templates = Jinja2Templates(directory=str(WEB_DIR / "templates"), context_processors=[localization_context])
 
-# Single source of truth for the UI's Chinese display labels (see
-# `one_person_dnd.web.labels`). Registered as globals so Jinja partials can
-# reference them by the same names they used to `{% set %}` locally, and
-# serialized to JSON so `base.html` can hand them to app.js for the
-# streaming renderer.
+# Single source of truth for the UI's coded display labels (see
+# `one_person_dnd.web.labels`). Registered as Chinese globals for standalone
+# template compatibility; request rendering replaces them with localized maps.
+# Jinja partials reference those stable names, and `base.html` serializes the
+# request-localized maps for the streaming renderer in app.js.
 register_jinja_globals(templates.env)
 
 ACTIVE_LLM_PROFILE_KEY = "active_llm_profile_id"

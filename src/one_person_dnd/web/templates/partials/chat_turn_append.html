@@ -7,7 +7,7 @@
 <div id="recall-preview" hx-swap-oob="innerHTML">
   {% if recalled_context and recalled_context|length > 0 %}
     <details class="recall-panel" open>
-      <summary class="muted">本回合参考</summary>
+      <summary class="muted">{{ t('game.recall.title') }}</summary>
       <ol class="recall-stack">
         {% for item in recalled_context %}
           <li class="recall-item{% if item.status == 'skipped' %} recall-item--skipped{% endif %}">
@@ -15,11 +15,11 @@
               <span class="recall-item__title">{{ item.title }}</span>
               <span class="muted">{{ item.kind }} · {{ item.source }}</span>
               {% if item.status == 'skipped' %}
-                <span class="recall-status recall-status--skipped">已裁剪</span>
+                <span class="recall-status recall-status--skipped">{{ t('game.recall.trimmed') }}</span>
               {% endif %}
             </div>
-            <div class="muted">{{ item.reason }}</div>
-            <div class="recall-item__preview">{{ item.preview }}</div>
+            <div class="muted">{% if item.reason_code %}{{ t('game.recall.reason.' ~ item.reason_code) }}{% else %}{{ item.reason }}{% endif %}</div>
+            <div class="recall-item__preview">{{ item.display_preview or item.preview }}</div>
           </li>
         {% endfor %}
       </ol>
@@ -30,11 +30,11 @@
         <li>
           <span class="muted">[{{ e.type }}]</span>
           {{ e.title }}
-          {% if e.tags %}<span class="muted">（{{ e.tags }}）</span>{% endif %}
+          {% if e.tags %}<span class="muted">{{ t('game.recall.tags', tags=e.tags) }}</span>{% endif %}
         </li>
       {% endfor %}
     </ol>
   {% else %}
-    <span class="muted">（本回合没有可显示的召回上下文；可以尝试填写更具体的标签或状态）</span>
+    <span class="muted">{{ t('game.recall.empty') }}</span>
   {% endif %}
 </div>

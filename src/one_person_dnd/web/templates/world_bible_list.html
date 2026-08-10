@@ -1,24 +1,24 @@
 {% extends "base.html" %}
 
-{% block title %}世界设定 - one_person_dnd{% endblock %}
+{% block title %}{{ t('world.page_title') }} - one_person_dnd{% endblock %}
 
 {% block content %}
-  {% set type_labels = {"Rule": "规则", "Location": "地点", "NPC": "人物", "Organization": "势力"} %}
+  {% set type_labels = {"Rule": t('world.type.rule'), "Location": t('world.type.location'), "NPC": t('world.type.npc'), "Organization": t('world.type.organization')} %}
   <div class="page-title-row">
     <div>
-      <div class="page-hero__eyebrow">{{ campaign_name or "当前冒险" }}</div>
-      <h1 class="page-title-row__title">世界设定</h1>
+      <div class="page-hero__eyebrow">{{ campaign_name or t('world.current_campaign') }}</div>
+      <h1 class="page-title-row__title">{{ t('world.page_title') }}</h1>
     </div>
     <div class="page-actions">
-      <a class="btn btn--ghost" href="/game">回到游玩</a>
+      <a class="btn btn--ghost" href="/game">{{ t('world.back_to_play') }}</a>
     </div>
   </div>
 
   <section class="card management-section">
     <div class="management-section__head">
       <div>
-        <div class="card__title">已经写下的规则、地点、人物与势力</div>
-        <div class="muted">DM 会在相关场景中自动参考这些内容。</div>
+        <div class="card__title">{{ t('world.list.heading') }}</div>
+        <div class="muted">{{ t('world.list.hint') }}</div>
       </div>
       <span class="count-badge">{{ entries|length }}</span>
     </div>
@@ -28,37 +28,37 @@
         {% for entry in entries %}
           <article class="world-library-card">
             <div class="world-library-card__head">
-              <span class="world-library-card__type">{{ type_labels.get(entry.type, entry.type or "设定") }}</span>
-              <span class="muted">更新于 {{ entry.updated_at }}</span>
+              <span class="world-library-card__type">{{ type_labels.get(entry.type, entry.type or t('world.type.setting')) }}</span>
+              <span class="muted">{{ t('world.updated_at', value=entry.updated_at) }}</span>
             </div>
             <h2>{{ entry.title }}</h2>
             {% if entry.content_preview %}<p>{{ entry.content_preview }}</p>{% endif %}
             {% if entry.tags %}<div class="tag-line">{{ entry.tags }}</div>{% endif %}
             <details class="advanced advanced--compact">
-              <summary>技术信息</summary>
-              <div class="muted">条目编号：{{ entry.id }} · 类型：{{ entry.type }}</div>
+              <summary>{{ t('world.technical_info') }}</summary>
+              <div class="muted">{{ t('world.entry_technical', id=entry.id, type=entry.type) }}</div>
             </details>
           </article>
         {% endfor %}
       </div>
     {% else %}
       <div class="empty-state">
-        <strong>这个世界还是一张白纸。</strong>
-        <div class="muted">先写一条最重要的规则、地点或人物，DM 就有了可依循的锚点。</div>
+        <strong>{{ t('world.empty_title') }}</strong>
+        <div class="muted">{{ t('world.empty_hint') }}</div>
       </div>
     {% endif %}
 
     <details class="advanced management-create">
-      <summary>添加一条世界设定</summary>
+      <summary>{{ t('world.add_summary') }}</summary>
       <div class="management-create__body">
-        <p class="muted">可从地点、人物、势力或硬规则模板开始，也可以自由书写。</p>
-        <a class="btn" href="/memory/world/new">打开设定编辑器</a>
+        <p class="muted">{{ t('world.add_hint') }}</p>
+        <a class="btn" href="/memory/world/new">{{ t('world.open_editor') }}</a>
       </div>
     </details>
 
     <details class="advanced advanced--compact">
-      <summary>当前冒险技术信息</summary>
-      <div class="muted">冒险编号：{{ campaign_id }}</div>
+      <summary>{{ t('world.campaign_technical') }}</summary>
+      <div class="muted">{{ t('world.campaign_id', id=campaign_id) }}</div>
     </details>
   </section>
 {% endblock %}

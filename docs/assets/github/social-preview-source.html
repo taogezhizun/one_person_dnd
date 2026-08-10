@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- Render at 1280x720, then center-crop to GitHub's 1280x640 social-preview size. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1280, initial-scale=1">
+  <title>one_person_dnd social preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #080b10; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; color: #efe8d6; }
+    .canvas {
+      position: relative;
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 19% 21%, rgba(122, 162, 247, .16), transparent 31%),
+        radial-gradient(circle at 82% 76%, rgba(192, 118, 67, .13), transparent 34%),
+        linear-gradient(135deg, #080b10 0%, #0d1219 62%, #111820 100%);
+    }
+    .canvas::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: .18;
+      background-image:
+        linear-gradient(rgba(228, 211, 176, .11) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(228, 211, 176, .11) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(90deg, #000, transparent 68%);
+    }
+    .rail { position: absolute; left: 54px; top: 88px; bottom: 88px; width: 3px; background: linear-gradient(#7aa2f7, #c07643); }
+    .copy { position: absolute; left: 86px; top: 97px; width: 510px; z-index: 2; }
+    .brand { display: flex; align-items: center; gap: 14px; font: 700 27px Georgia, serif; letter-spacing: .5px; }
+    .diamond { width: 16px; height: 16px; border: 2px solid #c07643; transform: rotate(45deg); box-shadow: 0 0 20px rgba(192, 118, 67, .4); }
+    h1 { margin: 70px 0 17px; font: 700 53px/1.15 Georgia, "Songti SC", serif; letter-spacing: -1.5px; max-width: 520px; }
+    .sub { font-size: 21px; line-height: 1.55; color: #c8c2b4; max-width: 485px; }
+    .accent { color: #7aa2f7; }
+    .tokens { display: flex; gap: 10px; margin-top: 28px; flex-wrap: wrap; }
+    .token { border: 1px solid rgba(228, 211, 176, .26); background: rgba(17, 24, 32, .82); border-radius: 999px; padding: 9px 14px; font-size: 15px; }
+    .check { position: absolute; left: 86px; bottom: 102px; width: 520px; padding: 17px 20px; border: 1px solid rgba(122, 162, 247, .48); border-left: 4px solid #7aa2f7; border-radius: 10px; background: rgba(17, 24, 32, .94); box-shadow: 0 18px 50px rgba(0, 0, 0, .32); }
+    .check-top { font-size: 13px; letter-spacing: 1.8px; text-transform: uppercase; color: #8fd6b4; margin-bottom: 7px; }
+    .check-main { font-size: 21px; font-weight: 700; }
+    .check-main b { color: #8fd6b4; }
+    .shot { position: absolute; left: 635px; top: 110px; width: 720px; height: 520px; border: 1px solid rgba(228, 211, 176, .24); border-radius: 18px; overflow: hidden; box-shadow: 0 34px 90px rgba(0, 0, 0, .62); transform: rotate(1.4deg); background: #111820; }
+    .shot img { width: 100%; height: 100%; object-fit: cover; object-position: 48% 50%; filter: saturate(.94) contrast(1.04); }
+    .shot::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04); }
+    .corner { position: absolute; right: 36px; top: 72px; color: #e4d3b0; font: 600 12px monospace; letter-spacing: 2px; opacity: .65; }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <div class="rail"></div>
+    <section class="copy">
+      <div class="brand"><span class="diamond"></span><span>one_person_dnd</span></div>
+      <h1>不用等齐队友，<br>也能开一场 DND。</h1>
+      <div class="sub">You don't need a full party<br>to start a DND adventure.</div>
+      <div class="tokens">
+        <span class="token">Local-first</span>
+        <span class="token">Player-controlled</span>
+        <span class="token">OpenAI-compatible</span>
+      </div>
+    </section>
+    <section class="check">
+      <div class="check-top">Frozen before narration</div>
+      <div class="check-main">DEX / Stealth · d20 14 + 5 = 19 · DC 15 · <b>SUCCESS</b></div>
+    </section>
+    <div class="shot"><img alt="" src="game-hero.jpg"></div>
+    <div class="corner">SOLO ADVENTURE // LOCAL SAVE</div>
+  </main>
+</body>
+</html>

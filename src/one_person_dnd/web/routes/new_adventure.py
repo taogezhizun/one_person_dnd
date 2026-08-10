@@ -14,6 +14,7 @@ from one_person_dnd.domain.characters import (
 )
 from one_person_dnd.llm import ChatMessage, LLMClientError, create_llm_client
 from one_person_dnd.paths import ensure_app_dirs
+from one_person_dnd.web.localization import Localizer, SUPPORTED_LOCALES, locale_for
 from one_person_dnd.web.routes.common import load_active_llm_config, templates
 
 router = APIRouter()
@@ -28,14 +29,58 @@ DEFAULT_FORM_VALUES = {
     "character_count": 1,
     "extra_constraints": "",
 }
+_LOCALIZED_DEFAULT_FIELDS = ("genre", "tone", "tech_level", "themes")
 
-def _new_context(**overrides: object) -> dict[str, object]:
+
+class _LocalizedInputError(ValueError):
+    def __init__(self, key: str) -> None:
+        super().__init__(key)
+        self.key = key
+
+
+def _new_context(request: object | None = None, **overrides: object) -> dict[str, object]:
+    ui = locale_for(request)
+    form_values = dict(DEFAULT_FORM_VALUES)
+    form_values.update(
+        {
+            "genre": ui("new.defaults.genre"),
+            "tone": ui("new.defaults.tone"),
+            "tech_level": ui("new.defaults.tech_level"),
+            "themes": ui("new.defaults.themes"),
+        }
+    )
     context: dict[str, object] = {
         "llm_ready": load_active_llm_config() is not None,
-        "form_values": dict(DEFAULT_FORM_VALUES),
+        "form_values": form_values,
     }
     context.update(overrides)
     return context
+
+
+def _canonical_prompt_form_values(form_values: dict[str, object]) -> dict[str, object]:
+    """Keep localized presets out of prompts while preserving player-entered text."""
+    normalized = dict(form_values)
+    for field in _LOCALIZED_DEFAULT_FIELDS:
+        value = str(normalized.get(field) or "").strip()
+        localized_presets = {
+            Localizer(locale)(f"new.defaults.{field}")
+            for locale in SUPPORTED_LOCALES
+        }
+        if value in localized_presets:
+            normalized[field] = DEFAULT_FORM_VALUES[field]
+    return normalized
+
+
+def _public_error_text(request: object | None, exc: Exception) -> str:
+    """Localize route-owned errors without rewriting provider/model content."""
+    ui = locale_for(request)
+    if isinstance(exc, _LocalizedInputError):
+        return ui(exc.key)
+    if ui.locale == "en" and isinstance(exc, CharacterSheetValidationError):
+        return ui("new.error.character_rules_invalid")
+    if ui.locale == "en" and isinstance(exc, (json.JSONDecodeError, TypeError, ValueError)):
+        return ui("new.error.invalid_generated_result")
+    return str(exc)
 
 
 def _decode_json_object(raw: str) -> dict:
@@ -49,7 +94,7 @@ def _decode_json_object(raw: str) -> dict:
         text = "\n".join(lines).strip()
     obj = json.loads(text)
     if not isinstance(obj, dict):
-        raise ValueError("JSON 根必须是对象")
+        raise _LocalizedInputError("new.error.json_root")
     return obj
 
 
@@ -79,7 +124,7 @@ def _decode_source_form(raw: str) -> tuple[dict[str, object], dict[str, str]]:
     raw_values = source.get("form_values")
     raw_proposal = source.get("proposal")
     if not isinstance(raw_values, dict) or not isinstance(raw_proposal, dict):
-        raise ValueError("返回修改所需的原始表单格式不正确")
+        raise _LocalizedInputError("new.error.source_form")
 
     form_values: dict[str, object] = dict(DEFAULT_FORM_VALUES)
     for key in ("adventure_brief", "genre", "tone", "tech_level", "themes", "extra_constraints"):
@@ -103,7 +148,7 @@ def new_get(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request,
         name="new.html",
-        context=_new_context(),
+        context=_new_context(request),
     )
 
 
@@ -133,9 +178,10 @@ def new_propose(
             request=request,
             name="new.html",
             context=_new_context(
+                request,
                 llm_ready=False,
                 form_values=form_values,
-                error="模型尚未配置，请先在“模型”页面选择或创建可用配置。",
+                error=locale_for(request)("new.error.model_not_configured"),
             ),
         )
 
@@ -147,12 +193,13 @@ def new_propose(
         "\"character_count\":1,\"extra_constraints\":\"值得保留的限制或开场钩子\"}。\n"
         "提案要具体、可玩、有清晰冲突，但不要替玩家决定角色行动。"
     )
+    prompt_values = _canonical_prompt_form_values(form_values)
     user = (
         "请根据现有偏好补全并优化一套提案；若描述为空，就独立构思一套完整而有辨识度的提案。\n"
-        f"我的想法：{form_values['adventure_brief'] or '（请你自由构思）'}\n"
-        f"风格：{form_values['genre']}\n基调：{form_values['tone']}\n"
-        f"时代或科技：{form_values['tech_level']}\n主题：{form_values['themes']}\n"
-        f"角色数量：{form_values['character_count']}\n额外约束：{form_values['extra_constraints'] or '无'}"
+        f"我的想法：{prompt_values['adventure_brief'] or '（请你自由构思）'}\n"
+        f"风格：{prompt_values['genre']}\n基调：{prompt_values['tone']}\n"
+        f"时代或科技：{prompt_values['tech_level']}\n主题：{prompt_values['themes']}\n"
+        f"角色数量：{prompt_values['character_count']}\n额外约束：{prompt_values['extra_constraints'] or '无'}"
     )
     try:
         client = create_llm_client(llm_cfg)
@@ -180,13 +227,17 @@ def new_propose(
         return templates.TemplateResponse(
             request=request,
             name="new.html",
-            context=_new_context(form_values=form_values, error=str(exc)),
+            context=_new_context(
+                request,
+                form_values=form_values,
+                error=_public_error_text(request, exc),
+            ),
         )
 
     return templates.TemplateResponse(
         request=request,
         name="new.html",
-        context=_new_context(form_values=form_values, proposal=proposal),
+        context=_new_context(request, form_values=form_values, proposal=proposal),
     )
 
 
@@ -223,10 +274,11 @@ def new_generate(
             request=request,
             name="new.html",
             context=_new_context(
+                request,
                 llm_ready=False,
                 form_values=form_values,
                 proposal=proposal if any(proposal.values()) else None,
-                error="模型尚未配置，请先在“模型”页面选择或创建可用配置。",
+                error=locale_for(request)("new.error.model_not_configured"),
             ),
         )
 
@@ -251,13 +303,14 @@ def new_generate(
         "level 必须是 1-20 的整数；abilities 必须使用 STR、DEX、CON、INT、WIS、CHA 六个 canonical key；"
         "skill_proficiencies 使用英文技能名数组。内容使用中文，具体可玩，不替玩家决定行动。"
     )
+    prompt_values = _canonical_prompt_form_values(form_values)
     user = (
-        f"冒险构想：{form_values['adventure_brief'] or '请根据以下偏好补全'}\n"
+        f"冒险构想：{prompt_values['adventure_brief'] or '请根据以下偏好补全'}\n"
         f"建议冒险名：{proposal['adventure_name'] or '请生成'}\n"
         f"建议第一章：{proposal['chapter_title'] or '请生成'}\n"
-        f"风格：{form_values['genre']}\n基调：{form_values['tone']}\n"
-        f"时代或科技：{form_values['tech_level']}\n主题：{form_values['themes']}\n"
-        f"额外约束：{form_values['extra_constraints'] or '无'}"
+        f"风格：{prompt_values['genre']}\n基调：{prompt_values['tone']}\n"
+        f"时代或科技：{prompt_values['tech_level']}\n主题：{prompt_values['themes']}\n"
+        f"额外约束：{prompt_values['extra_constraints'] or '无'}"
     )
 
     try:
@@ -268,7 +321,7 @@ def new_generate(
         entries = obj.get("world_bible_entries") or []
         sheet = obj.get("character_sheet") or {}
         if not isinstance(entries, list) or not isinstance(sheet, dict):
-            raise ValueError("生成结果中的世界设定或角色卡格式不正确")
+            raise _LocalizedInputError("new.error.generated_shape")
         sheet = normalize_generated_character_sheet(sheet)
         obj["character_sheet"] = sheet
         obj["adventure_name"] = _bounded_text(
@@ -284,9 +337,10 @@ def new_generate(
             request=request,
             name="new.html",
             context=_new_context(
+                request,
                 form_values=form_values,
                 proposal=proposal if any(proposal.values()) else None,
-                error=str(exc),
+                error=_public_error_text(request, exc),
             ),
         )
 
@@ -314,7 +368,13 @@ def new_return(
         return templates.TemplateResponse(
             request=request,
             name="new.html",
-            context=_new_context(error=f"无法恢复刚才的创建草稿：{exc}"),
+            context=_new_context(
+                request,
+                error=locale_for(request)(
+                    "new.error.restore_draft",
+                    detail=_public_error_text(request, exc),
+                ),
+            ),
         )
 
     # Names are editable on the preview page; returning should preserve those
@@ -325,6 +385,7 @@ def new_return(
         request=request,
         name="new.html",
         context=_new_context(
+            request,
             form_values=form_values,
             proposal=proposal if any(proposal.values()) else None,
         ),
@@ -336,24 +397,38 @@ def new_apply(
     preview_json: str = Form(...),
     adventure_name: str = Form(""),
     chapter_title: str = Form(""),
+    request: Request = None,
 ) -> RedirectResponse:
+    ui = locale_for(request)
     paths = ensure_app_dirs()
     try:
         obj = _decode_json_object(preview_json)
     except (ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=400, detail=f"无法采用这份冒险预览：{exc}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=ui(
+                "new.error.apply_preview",
+                detail=_public_error_text(request, exc),
+            ),
+        ) from exc
 
     entries = obj.get("world_bible_entries") or []
     sheet = obj.get("character_sheet") or {}
     if not isinstance(entries, list) or not isinstance(sheet, dict):
-        raise HTTPException(status_code=400, detail="冒险预览缺少有效的世界设定或角色卡")
+        raise HTTPException(status_code=400, detail=ui("new.error.preview_missing_content"))
     try:
         # The preview is editable client input. Re-establish the canonical
         # character contract at the final persistence boundary instead of
         # trusting that it still matches the earlier generated preview.
         sheet = normalize_generated_character_sheet(sheet)
     except CharacterSheetValidationError as exc:
-        raise HTTPException(status_code=400, detail=f"无法采用这份角色卡：{exc}") from exc
+        raise HTTPException(
+            status_code=400,
+            detail=ui(
+                "new.error.apply_character",
+                detail=_public_error_text(request, exc),
+            ),
+        ) from exc
 
     final_adventure_name = _bounded_text(adventure_name, _bounded_text(obj.get("adventure_name"), "未命名冒险"))
     final_chapter_title = _bounded_text(chapter_title, _bounded_text(obj.get("chapter_title"), "第一章·故事开场"))

@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -11,6 +12,7 @@ from one_person_dnd.db.conn import get_connection
 from one_person_dnd.db.repos import campaigns, character_sheets, sessions, world_bible
 from one_person_dnd.db.schema import init_db
 from one_person_dnd.paths import AppPaths
+from one_person_dnd.web.localization import Localizer
 from one_person_dnd.web.routes import new_adventure
 
 
@@ -256,6 +258,38 @@ class TestNewAdventureRoutes(unittest.TestCase):
         self.assertEqual(source["form_values"]["extra_constraints"], "不能复活")
         self.assertEqual(source["proposal"]["adventure_name"], "潮痕")
         self.assertEqual(source["proposal"]["chapter_title"], "失踪的灯塔")
+
+    def test_english_ui_presets_do_not_change_generation_prompt_defaults(self) -> None:
+        client = _GeneratedAdventureClient()
+        request = SimpleNamespace(state=SimpleNamespace(ui=Localizer("en")))
+        with (
+            patch("one_person_dnd.web.routes.new_adventure.load_active_llm_config", return_value=object()),
+            patch("one_person_dnd.web.routes.new_adventure.create_llm_client", return_value=client),
+            patch("one_person_dnd.web.routes.new_adventure.templates.TemplateResponse") as template_response,
+        ):
+            template_response.side_effect = lambda *, request, name, context: {"template": name, **context}
+            context = new_adventure.new_generate(
+                request=request,
+                adventure_brief="",
+                genre="Fantasy",
+                tone="Adventure",
+                tech_level="Medieval",
+                themes="Exploration, mystery",
+                character_count=1,
+                extra_constraints="",
+                proposed_adventure_name="",
+                proposed_chapter_title="",
+            )
+
+        self.assertEqual(context["template"], "new_preview.html")
+        user_prompt = client.messages[1].content
+        self.assertIn("风格：奇幻", user_prompt)
+        self.assertIn("基调：冒险", user_prompt)
+        self.assertIn("时代或科技：中世纪", user_prompt)
+        self.assertIn("主题：探索,谜团", user_prompt)
+        source = json.loads(context["source_form_json"])
+        self.assertEqual(source["form_values"]["genre"], "Fantasy")
+        self.assertEqual(source["form_values"]["themes"], "Exploration, mystery")
 
     def test_return_to_edit_restores_all_fields_and_latest_preview_names(self) -> None:
         source_form_json = json.dumps(

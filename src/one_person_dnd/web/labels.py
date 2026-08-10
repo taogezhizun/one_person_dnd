@@ -1,103 +1,110 @@
-"""Single source of truth for the Chinese display labels used in the game UI.
+"""Stable compatibility maps for coded display labels used in the game UI.
 
-These five code -> 中文 maps used to be hand-duplicated across the Jinja
+The bilingual copy lives only in ``web.localization.catalogs.diagnostics``.
+This module derives the existing code-to-Chinese maps from that catalog so
+older Python callers, standalone Jinja rendering, and browser serialization
+keep the same public API without maintaining a second copy of the wording.
+
+These maps were originally introduced to replace hand-duplicated labels across
+the Jinja
 partials (`templates/partials/chat_turn.html`, `templates/partials/turn_diagnostics.html`)
 and the streaming renderer (`static/js/app.js`). Historical turns are rendered
 server-side by Jinja while new turns are rendered client-side by JS as they
 stream in, so a stale copy in either place would silently show a raw code (or,
 worse, a different translation) instead of the intended label.
 
-Now Python owns the maps:
+Python exposes the derived maps to both renderers:
   - Jinja templates get them as globals (see `web/routes/common.py`), under the
     same variable names the templates already used (`action_type_labels`, ...).
   - `app.js` gets them serialized as JSON, injected via `base.html` into a
     `<script id="dnd-labels" type="application/json">` element that loads
     before `app.js` runs.
 
-Do not edit these maps in templates or app.js directly; edit them here.
+Edit diagnostic wording only in ``web/localization/catalogs/diagnostics.py``.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-ACTION_TYPE_LABELS: dict[str, str] = {
-    "exploration": "探索",
-    "social": "社交",
-    "combat": "战斗",
-    "rest": "休息",
-    "inventory": "物品",
-    "meta": "系统/元指令",
+from one_person_dnd.web.localization.catalogs.diagnostics import MESSAGES as DIAGNOSTIC_MESSAGES
+
+if TYPE_CHECKING:
+    from one_person_dnd.web.localization import Localizer
+
+
+def _default_labels(prefix: str) -> dict[str, str]:
+    return {
+        key.removeprefix(prefix): pair[0]
+        for key, pair in DIAGNOSTIC_MESSAGES.items()
+        if key.startswith(prefix)
+    }
+
+
+ACTION_TYPE_LABELS: dict[str, str] = _default_labels("action.type.")
+ACTION_SIGNAL_LABELS: dict[str, str] = _default_labels("action.signal.")
+ACTION_WARNING_LABELS: dict[str, str] = _default_labels("action.warning.")
+CRITIC_WARNING_LABELS: dict[str, str] = _default_labels("critic.")
+RESPONSE_WARNING_LABELS: dict[str, str] = _default_labels("response.")
+
+# Frozen adjudication records predate UI localization and persist their intent
+# as a canonical Chinese domain phrase. Keep this compatibility map at the
+# presentation boundary so switching the interface never mutates old saves.
+ADJUDICATION_INTENT_CODES: dict[str, str] = {
+    label: code
+    for code, label in _default_labels("adjudication.intent.").items()
 }
 
-ACTION_SIGNAL_LABELS: dict[str, str] = {
-    "explicit_roll": "已识别掷骰",
-    "state_change_likely": "可能影响角色状态",
-    "time_passes": "时间会推进",
-    "roll_may_be_needed": "可能需要掷骰",
-    "dm_should_adjudicate_outcome": "结果由 DM 判定",
-    "adjudication_unsupported": "本轮规则暂不支持",
-    "manual_roll_not_canonical": "手动骰仅作原始结果",
-    "no_check_needed": "无需系统检定",
-    "adjudication_needs_input": "角色规则数据需补充",
-    "ability_check_resolved": "属性检定已结算",
-}
-
-ACTION_WARNING_LABELS: dict[str, str] = {
-    "possible_overreach": "行动可能越权",
-    "declared_success": "行动描述已包含结果",
-    "npc_outcome_claim": "人物结果需要 DM 判定",
-    "unsupported_attack_save_or_combat": "战斗/攻击/豁免尚未自动结算",
-    "invalid_level_for_proficiency": "角色等级无效，无法计算熟练",
-    "proficiency_level_defaulted_to_1": "缺少等级，熟练暂按 1 级计算",
-}
-
-for _ability in ("STR", "DEX", "CON", "INT", "WIS", "CHA"):
-    ACTION_WARNING_LABELS[f"ability_defaulted_to_10:{_ability}"] = f"缺少 {_ability}，本次暂按 10 计算"
-    ACTION_WARNING_LABELS[f"invalid_ability_score:{_ability}"] = f"{_ability} 数值无效，需要修正角色卡"
-
-# NOTE: prior to this refactor, `turn_diagnostics.html` (server-rendered
-# historical turns) and `app.js` (streaming new turns) had already drifted
-# apart for these two maps: the Jinja copy used "行动建议..." wording while
-# the JS copy used "选项..." wording for the same codes. Since a single
-# source can only carry one value per code, this file adopts the
-# "行动建议" wording, which matches the vocabulary used elsewhere in the app
-# for `turn.dm.choices` (e.g. "行动灵感" / "行动建议" in game.html and
-# chat_turn.html). This intentionally changes the text a freshly streamed
-# turn shows for these three codes (previously "选项...") so both render
-# paths agree going forward.
-CRITIC_WARNING_LABELS: dict[str, str] = {
-    "empty_dm_response": "DM 没有返回内容",
-    "missing_required_protocol_delimiters": "DM 输出缺少必要段落",
-    "empty_narration": "叙事内容为空",
-    "choice_count_out_of_range": "行动建议数量不适合继续游玩",
-    "malformed_state_delta": "状态变更建议格式有误",
-    "malformed_thread_updates": "剧情线更新建议格式有误",
-    "adjudication_outcome_conflict": "DM 叙事与系统检定结果冲突",
-    "unresolved_check_declared": "角色数据不足时 DM 提前宣布了检定结果",
-}
-
-RESPONSE_WARNING_LABELS: dict[str, str] = {
-    "duplicate_choices": "行动建议重复",
-    "non_actionable_choice": "行动建议过于笼统",
-    "choice_declares_outcome": "行动建议替玩家宣布结果",
+ADJUDICATION_INTENT_LABELS: dict[str, str] = {
+    intent: intent for intent in ADJUDICATION_INTENT_CODES
 }
 
 
 def all_label_maps() -> dict[str, dict[str, str]]:
-    """Return all five label maps keyed for JSON serialization to the client."""
+    """Return display maps keyed for JSON serialization to the client."""
     return {
         "action_type": ACTION_TYPE_LABELS,
         "action_signal": ACTION_SIGNAL_LABELS,
         "action_warning": ACTION_WARNING_LABELS,
         "critic_warning": CRITIC_WARNING_LABELS,
         "response_warning": RESPONSE_WARNING_LABELS,
+        "adjudication_intent": ADJUDICATION_INTENT_LABELS,
+    }
+
+
+def localized_label_maps(localizer: "Localizer") -> dict[str, dict[str, str]]:
+    """Project the stable diagnostic codes through the request localizer."""
+    return {
+        "action_type": {
+            code: localizer(f"action.type.{code}")
+            for code in ACTION_TYPE_LABELS
+        },
+        "action_signal": {
+            code: localizer(f"action.signal.{code}")
+            for code in ACTION_SIGNAL_LABELS
+        },
+        "action_warning": {
+            code: localizer(f"action.warning.{code}")
+            for code in ACTION_WARNING_LABELS
+        },
+        "critic_warning": {
+            code: localizer(f"critic.{code}")
+            for code in CRITIC_WARNING_LABELS
+        },
+        "response_warning": {
+            code: localizer(f"response.{code}")
+            for code in RESPONSE_WARNING_LABELS
+        },
+        "adjudication_intent": {
+            intent: localizer(f"adjudication.intent.{code}")
+            for intent, code in ADJUDICATION_INTENT_CODES.items()
+        },
     }
 
 
 def register_jinja_globals(env: Any) -> None:
-    """Register the five label maps (plus their JSON form) on a Jinja Environment.
+    """Register display-label maps (plus their JSON form) on a Jinja Environment.
 
     Templates keep using the same variable names they used to `{% set %}`
     locally (`action_type_labels`, `action_signal_labels`,
@@ -109,4 +116,10 @@ def register_jinja_globals(env: Any) -> None:
     env.globals["action_warning_labels"] = ACTION_WARNING_LABELS
     env.globals["critic_warning_labels"] = CRITIC_WARNING_LABELS
     env.globals["response_warning_labels"] = RESPONSE_WARNING_LABELS
+    env.globals["adjudication_intent_labels"] = ADJUDICATION_INTENT_LABELS
     env.globals["label_maps_json"] = json.dumps(all_label_maps(), ensure_ascii=False)
+    # Standalone template tests do not pass through the request context processor.
+    # They intentionally render the default Chinese UI.
+    from one_person_dnd.web.localization import Localizer
+
+    env.globals["t"] = Localizer()

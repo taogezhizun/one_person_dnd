@@ -5,24 +5,87 @@ import unittest
 
 from jinja2 import Environment, FileSystemLoader
 
-from one_person_dnd.web.labels import register_jinja_globals
+from one_person_dnd.web.labels import localized_label_maps, register_jinja_globals
+from one_person_dnd.web.localization import Localizer
+
+
+def _template_environment(locale: str = "zh-CN") -> Environment:
+    env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
+    register_jinja_globals(env)
+    if locale == "en":
+        ui = Localizer("en")
+        labels = localized_label_maps(ui)
+        env.globals.update(
+            t=ui,
+            html_lang=ui.html_lang,
+            other_locale="zh-CN",
+            other_locale_label="中文",
+            client_catalog=ui.client_catalog(),
+            label_maps=labels,
+            action_type_labels=labels["action_type"],
+            action_signal_labels=labels["action_signal"],
+            action_warning_labels=labels["action_warning"],
+            critic_warning_labels=labels["critic_warning"],
+            response_warning_labels=labels["response_warning"],
+            adjudication_intent_labels=labels["adjudication_intent"],
+        )
+    return env
 
 
 class TestUITemplates(unittest.TestCase):
     def test_primary_nav_is_play_first(self) -> None:
         base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
 
-        for href, label in (
-            ('href="/game"', "游玩"),
-            ('href="/new"', "新冒险"),
-            ('href="/saves"', "冒险"),
-            ('href="/memory/world"', "世界"),
-            ('href="/threads"', "剧情线"),
-            ('href="/models"', "模型"),
+        for href, key in (
+            ('href="/game"', "nav.play"),
+            ('href="/new"', "nav.new_adventure"),
+            ('href="/saves"', "nav.adventures"),
+            ('href="/memory/world"', "nav.world"),
+            ('href="/threads"', "nav.plot_threads"),
+            ('href="/models"', "nav.models"),
         ):
             self.assertIn(href, base)
-            self.assertIn(label, base)
+            self.assertIn(key, base)
         self.assertNotIn('href="/setup">配置', base)
+
+        english = _template_environment("en").get_template("base.html").render()
+        self.assertIn('<html lang="en">', english)
+        for label in ("Play", "New Adventure", "Adventures", "World", "Plot Threads", "Models"):
+            self.assertIn(f">{label}</a>", english)
+
+    def test_locale_switch_is_a_right_edge_header_utility(self) -> None:
+        base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
+        css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
+
+        header = base.split('<header class="header">', 1)[1].split("</header>", 1)[0]
+        primary_nav = header.split('<nav class="nav"', 1)[1].split("</nav>", 1)[0]
+        self.assertIn('class="header__nav-row"', header)
+        self.assertNotIn("locale-switch", primary_nav)
+        self.assertLess(header.index("</nav>"), header.index('<form class="locale-switch"'))
+
+        def declarations(selector: str, source: str = css) -> str:
+            match = re.search(rf"{re.escape(selector)}\s*\{{([^}}]*)\}}", source)
+            self.assertIsNotNone(match, f"missing CSS rule: {selector}")
+            return match.group(1)
+
+        row_rule = declarations(".header__nav-row")
+        self.assertIn("display: flex;", row_rule)
+        self.assertIn("flex: 1 1 auto;", row_rule)
+        self.assertIn("min-width: 0;", row_rule)
+
+        utility_rule = declarations(".locale-switch")
+        self.assertIn("flex: 0 0 auto;", utility_rule)
+        self.assertIn("margin-left: auto;", utility_rule)
+
+        nav_item_rule = declarations(".nav a,\n.nav__locale")
+        self.assertIn("min-height: 40px;", nav_item_rule)
+        self.assertIn("white-space: nowrap;", nav_item_rule)
+
+        compact_header = css.split("@media (max-width: 900px) {", 1)[1].split(
+            "@media (max-width: 1320px) {", 1
+        )[0]
+        self.assertIn("flex-direction: column;", declarations(".header__inner", compact_header))
+        self.assertIn("width: 100%;", declarations(".header__nav-row", compact_header))
 
     def test_base_uses_local_vendored_scripts(self) -> None:
         base = Path("src/one_person_dnd/web/templates/base.html").read_text(encoding="utf-8")
@@ -49,16 +112,29 @@ class TestUITemplates(unittest.TestCase):
         index = Path("src/one_person_dnd/web/templates/index.html").read_text(encoding="utf-8")
 
         self.assertIn('href="/models"', index)
-        self.assertIn("去配置模型", index)
+        self.assertIn("home.configure_model", index)
         self.assertNotIn('href="/setup">去配置', index)
 
     def test_home_prioritizes_continuing_before_creating_new_adventure(self) -> None:
         index = Path("src/one_person_dnd/web/templates/index.html").read_text(encoding="utf-8")
 
-        self.assertIn('href="/new">创建新冒险', index)
-        self.assertIn("继续这场冒险", index)
+        self.assertIn("home.create_new", index)
+        self.assertIn("home.continue_adventure", index)
         self.assertLess(index.index('href="/game"'), index.index('href="/new"'))
         self.assertLess(index.index('href="/game"'), index.index('href="/saves"'))
+
+        english = _template_environment("en").get_template("index.html").render(
+            campaign_name="Player Save Name",
+            session_title="Player Chapter",
+            current_scene="Player Scene",
+            latest_story="Player Story",
+            last_played_at="",
+            character=None,
+            llm_configured=False,
+        )
+        self.assertIn("Continue this adventure", english)
+        self.assertIn("Create a new adventure", english)
+        self.assertIn("Player Save Name", english)
 
     def test_new_adventure_generation_shows_long_submit_state(self) -> None:
         new = Path("src/one_person_dnd/web/templates/new.html").read_text(encoding="utf-8")
@@ -66,15 +142,15 @@ class TestUITemplates(unittest.TestCase):
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("new-adventure__notice-actions", new)
-        self.assertIn('href="/models">去配置模型', new)
+        self.assertIn("new.model_not_ready.cta", new)
         self.assertIn(".new-adventure__notice-actions", css)
         self.assertIn('data-long-submit', new)
-        self.assertIn('data-long-submit-label="正在铺开世界……"', new)
+        self.assertIn("new.action.generating", new)
         self.assertIn('formaction="/new/propose"', new)
-        self.assertIn("帮我想一套", new)
+        self.assertIn("new.action.propose", new)
         self.assertIn('data-long-submit-button', new)
         self.assertIn('data-long-submit-status', new)
-        self.assertIn("模型正在构思", new)
+        self.assertIn("new.action.waiting", new)
         self.assertIn("function initLongSubmitForms()", app_js)
         self.assertIn('querySelectorAll("[data-long-submit]")', app_js)
         self.assertIn('querySelector("[data-long-submit-button]")', app_js)
@@ -83,6 +159,23 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("status.hidden = false;", app_js)
         self.assertIn("initLongSubmitForms();", app_js)
         self.assertIn(".form-status", css)
+
+        english = _template_environment("en").get_template("new.html").render(
+            form_values={
+                "adventure_brief": "Player brief",
+                "genre": "",
+                "tone": "",
+                "tech_level": "",
+                "themes": "",
+                "character_count": 1,
+                "extra_constraints": "Player constraints",
+            },
+            llm_ready=False,
+            error="",
+        )
+        self.assertIn("Create a new adventure", english)
+        self.assertIn("The model is not ready", english)
+        self.assertIn("Player brief", english)
 
     def test_turn_form_persists_attempt_identity_until_success(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -103,11 +196,11 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("new-preview-summary", template)
         self.assertIn("new-preview-summary__grid", template)
-        self.assertIn("世界设定", template)
-        self.assertIn("同行角色", template)
-        self.assertIn("开场地点或局面", template)
-        self.assertIn("查看技术数据", template)
-        self.assertIn("返回修改", template)
+        self.assertIn("new.preview.world_settings", template)
+        self.assertIn("new.preview.companions", template)
+        self.assertIn("new.preview.opening", template)
+        self.assertIn("new.preview.technical", template)
+        self.assertIn("new.preview.return_to_edit", template)
         self.assertIn('name="source_form_json"', template)
         self.assertIn('formaction="/new/return"', template)
         self.assertIn('formmethod="post"', template)
@@ -150,8 +243,8 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("世界设定", html)
         self.assertIn('class="status-tile__value">2 条</div>', html)
-        self.assertIn("同行角色", html)
-        self.assertIn('class="status-tile__value">1 名</div>', html)
+        self.assertIn("你的队伍", html)
+        self.assertIn('class="status-tile__value">1 名角色</div>', html)
         self.assertIn("阿洛", html)
         self.assertIn("雾港疑云", html)
         self.assertIn("等级 3", html)
@@ -164,9 +257,9 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("home-dashboard", index)
         self.assertIn("home-panel home-panel--primary", index)
-        self.assertIn("继续上次旅程", index)
-        self.assertIn('href="/game">继续这场冒险', index)
-        self.assertIn('href="/new">创建新冒险', index)
+        self.assertIn("home.continue.kicker", index)
+        self.assertIn("home.continue_adventure", index)
+        self.assertIn("home.create_new", index)
         self.assertIn('href="/models"', index)
         self.assertIn("journey-status-card", index)
         self.assertIn(".home-dashboard", css)
@@ -212,18 +305,40 @@ class TestUITemplates(unittest.TestCase):
     def test_game_sidebar_uses_adventure_panel_sections(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
 
-        self.assertIn("冒险面板", game)
+        self.assertIn("game.sidebar.title", game)
         self.assertIn("game-status-strip", game)
         self.assertIn("panel-section", game)
-        self.assertIn("角色卡与变更", game)
-        self.assertIn("场景与世界", game)
-        self.assertIn("剧情与章节", game)
-        self.assertIn("系统与高级工具", game)
-        self.assertIn("回合诊断", game)
+        self.assertIn("game.character.title", game)
+        self.assertIn("game.world.section", game)
+        self.assertIn("game.threads.section", game)
+        self.assertIn("game.system.tools", game)
+        self.assertIn("game.diagnostics.title", game)
 
         self.assertLess(game.index('id="character-panel"'), game.index('id="sidebar-form"'))
-        self.assertLess(game.index("角色卡与变更"), game.index("场景与世界"))
+        self.assertLess(game.index("game.character.title"), game.index("game.world.section"))
         self.assertIn('data-system-tools', game)
+
+        english = _template_environment("en").get_template("game.html").render(
+            campaign_id=1,
+            session_id=2,
+            campaign_name="Player Save Name",
+            session_title="Player Chapter",
+            current_scene="Player Scene",
+            session_state="Player State",
+            pinned_world_notes="Player Lore",
+            sessions_list=[{"id": 2, "title": "Player Chapter"}],
+            pending_count=0,
+            cheat_enabled=False,
+            cheat_prompt="",
+            turns=[],
+            open_threads=[],
+            world_bible_entries=[],
+            world_setup_prompt={"show": False},
+            llm_configured=True,
+        )
+        self.assertIn("Adventure panel", english)
+        self.assertIn("Scene and world", english)
+        self.assertIn("Player Save Name", english)
 
     def test_game_sidebar_uses_tabbed_adventure_panel(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -231,15 +346,15 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("panel-tabs", game)
         self.assertIn('role="tablist"', game)
-        for tab_id, label, panel_class in (
-            ("panel-tab-character", "角色", "panel-tabs__panel--character"),
-            ("panel-tab-world", "世界", "panel-tabs__panel--world"),
-            ("panel-tab-threads", "剧情", "panel-tabs__panel--threads"),
-            ("panel-tab-system", "系统", "panel-tabs__panel--system"),
+        for tab_id, key, panel_class in (
+            ("panel-tab-character", "game.tabs.character", "panel-tabs__panel--character"),
+            ("panel-tab-world", "game.tabs.world", "panel-tabs__panel--world"),
+            ("panel-tab-threads", "game.tabs.plot", "panel-tabs__panel--threads"),
+            ("panel-tab-system", "game.tabs.system", "panel-tabs__panel--system"),
         ):
             self.assertIn(f'id="{tab_id}"', game)
             self.assertIn(f'for="{tab_id}"', game)
-            self.assertIn(label, game)
+            self.assertIn(key, game)
             self.assertIn(panel_class, game)
 
         self.assertIn(".panel-tabs__panel {", css)
@@ -398,11 +513,11 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("action-composer__header", game)
         self.assertIn("action-composer__kicker", game)
-        self.assertIn("下一步行动", game)
-        self.assertIn('placeholder="描述你的行动…"', game)
-        self.assertIn("例如：我特别留意窗外脚步声，或提醒 DM 上回合的一个细节…", game)
-        self.assertIn("例如：正在潜行、带着诅咒、某个人物正在同行……", game)
-        self.assertIn("世界硬规则/重要关系/禁忌…", game)
+        self.assertIn("game.composer.title", game)
+        self.assertIn("game.composer.action_placeholder", game)
+        self.assertIn("game.advanced.context_placeholder", game)
+        self.assertIn("game.world.state_placeholder", game)
+        self.assertIn("game.world.pinned_placeholder", game)
         self.assertNotIn('placeholder="描述你的行动..."', game)
         self.assertNotIn("一个细节...", game)
         self.assertNotIn("NPC 正在同行", game)
@@ -618,7 +733,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("function initTurnDraftPersistence()", app_js)
         self.assertIn('localStorage.getItem(turnDraftKey(form))', app_js)
         self.assertIn("function showTurnDraftFeedback()", app_js)
-        self.assertIn('feedback.textContent = "已恢复未发送的行动草稿，可继续编辑或发送";', app_js)
+        self.assertIn('window.DndI18n.t("game.js.draft_restored")', app_js)
         self.assertIn(
             "if (saved && !ta.value.trim()) {\n"
             "              ta.value = saved;\n"
@@ -732,8 +847,8 @@ class TestUITemplates(unittest.TestCase):
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("data-turn-submit", game)
-        self.assertIn('data-default-label="发送"', game)
-        self.assertIn('data-loading-label="发送中…"', game)
+        self.assertIn("game.composer.send", game)
+        self.assertIn("game.composer.sending", game)
         self.assertIn("function updateTurnSubmitState(form)", app_js)
         self.assertIn("function initTurnSubmitState()", app_js)
         self.assertIn("form.dataset.turnInFlight", app_js)
@@ -763,7 +878,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('id="turn-loading" class="htmx-indicator spinner" role="status" aria-live="polite"', game)
         self.assertIn('asstContent.setAttribute("role", "status");', app_js)
         self.assertIn('asstContent.setAttribute("aria-live", "polite");', app_js)
-        self.assertIn("DM 正在思考下一幕…", app_js)
+        self.assertIn('window.DndI18n.t("game.js.dm_thinking")', app_js)
 
     def test_turn_request_locks_editable_fields_while_in_flight(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -788,10 +903,10 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("function renderTurnRequestNotice(turnEl, title, message, warn)", app_js)
         self.assertIn('err && err.name === "AbortError"', app_js)
-        self.assertIn('renderTurnRequestNotice(turnEl, "请求已取消"', app_js)
-        self.assertIn("行动草稿已保留，可以修改后重新发送。", app_js)
-        self.assertIn('renderTurnRequestNotice(turnEl, "请求失败"', app_js)
-        self.assertIn('err && err.message ? err.message : "网络连接中断，请稍后重试。"', app_js)
+        self.assertIn('window.DndI18n.t("game.error.cancelled_title")', app_js)
+        self.assertIn('window.DndI18n.t("game.error.cancelled_body")', app_js)
+        self.assertIn('window.DndI18n.t("game.error.request_title")', app_js)
+        self.assertIn('window.DndI18n.t("game.error.network")', app_js)
         self.assertIn('notice.className = warn ? "notice notice--err" : "notice"', app_js)
         self.assertIn('notice.setAttribute("role", "status");', app_js)
         self.assertIn('notice.setAttribute("aria-live", "polite");', app_js)
@@ -811,7 +926,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("function surfacePendingReview(turn)", app_js)
         self.assertIn("turn && turn.has_pending_review", app_js)
         self.assertIn('document.querySelector("[data-pending-count]")', app_js)
-        self.assertIn("条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。", app_js)
+        self.assertIn('window.DndI18n.t("game.js.pending_body", { count: next })', app_js)
         self.assertIn("data-review-callout", game)
         self.assertIn("data-review-callout-text", game)
         self.assertIn('surfacePendingReview(payload.turn);', app_js)
@@ -831,7 +946,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".page-title-row__title {\n  font-size: 2rem;", css)
         self.assertIn(".action-composer .textarea {\n  min-height: 72px;", css)
         self.assertIn(".quick-roll-panel__result {\n  margin-top: 6px;", css)
-        self.assertIn("<summary>高级选项</summary>", game)
+        self.assertIn("game.advanced.title", game)
         self.assertNotIn("高级选项（标签 / 额外上下文，可选）", game)
 
     def test_quick_roll_result_can_be_applied_to_turn_context(self) -> None:
@@ -849,11 +964,11 @@ class TestUITemplates(unittest.TestCase):
         self.assertIsNotNone(quick_roll_input)
         quick_roll_attrs = quick_roll_input.group(0)
         self.assertIn("required", quick_roll_attrs)
-        self.assertIn('aria-label="掷骰表达式"', quick_roll_attrs)
+        self.assertIn("game.roll.input_aria", quick_roll_attrs)
         self.assertIn('autocomplete="off"', quick_roll_attrs)
         self.assertIn('id="quick-roll-loading"', game)
         self.assertIn('id="quick-roll-loading" class="htmx-indicator spinner" role="status" aria-live="polite"', game)
-        self.assertIn("掷骰中…", game)
+        self.assertIn("game.roll.loading", game)
         self.assertIn('class="htmx-indicator spinner"', game)
         self.assertIn('id="quick-roll-result" class="muted quick-roll-panel__result" role="status" aria-live="polite"', game)
         self.assertIn("data-roll-context", html)
@@ -868,7 +983,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("function showTurnContextFeedback(context)", app_js)
         self.assertIn("function hideTurnContextFeedback()", app_js)
         self.assertIn('document.querySelector("[data-turn-context-feedback]")', app_js)
-        self.assertIn('feedback.textContent = "已带入本回合线索：" + context;', app_js)
+        self.assertIn('window.DndI18n.t("game.js.context_added", { context })', app_js)
         self.assertIn("function revealTurnContextInput(stateBlock)", app_js)
         self.assertIn('const advanced = stateBlock.closest("[data-advanced-inputs]");', app_js)
         self.assertIn("advanced.open = true;", app_js)
@@ -877,11 +992,11 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('stateBlock.scrollIntoView({ block: "center", behavior: "smooth" });', app_js)
         self.assertIn('const contextLines = current.split("\\n").map((line) => line.trim()).filter(Boolean);', app_js)
         self.assertIn("if (contextLines.includes(context)) {", app_js)
-        self.assertIn('showTurnContextFeedback("该线索已在本回合上下文中");', app_js)
-        self.assertIn('btn.textContent = "已带入过"', app_js)
+        self.assertIn('window.DndI18n.t("game.js.context_exists")', app_js)
+        self.assertIn('window.DndI18n.t("game.js.context_used")', app_js)
         self.assertIn("hideTurnContextFeedback();", app_js)
         self.assertNotIn("turnContextFeedbackTimer", app_js)
-        self.assertIn('btn.textContent = "已带入线索"', app_js)
+        self.assertIn('window.DndI18n.t("game.js.context_use")', app_js)
         self.assertIn("window.setTimeout", app_js)
         self.assertIn("btn.disabled = true", app_js)
         self.assertIn(".action-composer__context-feedback", css)
@@ -1086,7 +1201,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('data-game-layout-resizer', game)
         self.assertIn('role="separator"', game)
         self.assertIn('aria-orientation="vertical"', game)
-        self.assertIn("调整故事对话和冒险面板宽度", game)
+        self.assertIn("game.layout.resize_aria", game)
         self.assertIn('data-game-layout-reset', game)
         self.assertLess(game.index("chat-card"), game.index("data-game-layout-resizer"))
         self.assertLess(game.index("data-game-layout-resizer"), game.index("sidebar-card"))
@@ -1122,9 +1237,9 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('data-chat-history-shell', game)
         self.assertIn('data-chat-history-resizable', game)
         self.assertIn('data-chat-history-resizer', game)
-        self.assertIn('aria-label="调整故事记录高度"', game)
+        self.assertIn("game.history.resize_aria", game)
         self.assertIn('aria-orientation="horizontal"', game)
-        self.assertIn('title="拖拽调整高度，双击复位"', game)
+        self.assertIn("game.history.resize_title", game)
         self.assertLess(game.index('id="chat-history"'), game.index("data-chat-history-resizer"))
 
         self.assertIn(".chat-history-shell", css)
@@ -1159,7 +1274,7 @@ class TestUITemplates(unittest.TestCase):
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("review-callout", game)
-        self.assertIn("待审状态 / 剧情线更新", game)
+        self.assertIn("game.review.title", game)
         self.assertIn('href="#character-panel"', game)
         self.assertLess(game.index("game-status-strip"), game.index("review-callout"))
         self.assertLess(game.index("review-callout"), game.index("grid grid--game"))
@@ -1172,11 +1287,11 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("world_setup_prompt.show", game)
         self.assertIn("world-setup-callout", game)
-        self.assertIn("这局还没有世界观", game)
+        self.assertIn("game.world_setup.title", game)
         self.assertIn('href="/new"', game)
         self.assertIn('href="/memory/world/new"', game)
         self.assertIn('action="/game/world-setup/skip"', game)
-        self.assertIn("继续空白开局", game)
+        self.assertIn("game.world_setup.skip", game)
         self.assertLess(game.index("game-status-strip"), game.index("world-setup-callout"))
         self.assertLess(game.index("world-setup-callout"), game.index("grid grid--game"))
         self.assertIn(".world-setup-callout", css)
@@ -1195,9 +1310,18 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("model-profile-library", template)
         self.assertIn("model-profile-card", template)
         self.assertIn("model-profile-actions", template)
-        self.assertLess(template.index("已有模型"), template.index("添加模型"))
+        self.assertLess(template.index("models.existing.title"), template.index("models.add.summary"))
         self.assertIn(".model-profile-library", css)
         self.assertIn(".model-profile-card--active", css)
+
+        english = _template_environment("en").get_template("models.html").render(
+            profiles=[],
+            provider_presets=[],
+            active_id=None,
+            created=False,
+        )
+        self.assertLess(english.index("Saved models"), english.index("Add model"))
+        self.assertIn("Models", english)
 
     def test_key_forms_use_explicit_labels_and_safe_autocomplete(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -1209,7 +1333,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('textarea class="input textarea" name="player_text" required data-turn-lockable data-autogrow rows="1" autocomplete="off"', game)
         self.assertIn('input class="input" name="tags" data-turn-lockable autocomplete="off"', game)
         self.assertIn('textarea class="input textarea" name="state_block" data-turn-lockable autocomplete="off"', game)
-        self.assertIn('select class="input input--compact" name="session_id" aria-label="切换章节" autocomplete="off"', game)
+        self.assertIn('select class="input input--compact" name="session_id" aria-label="{{ t(\'game.session.switch_aria\') }}" autocomplete="off"', game)
         self.assertIn('input class="input" name="current_scene" value="{{ current_scene }}" autocomplete="off"', game)
 
         self.assertIn('id="deepseek-profile-name"', models)
@@ -1221,11 +1345,11 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn('id="adventure-genre"', new)
         self.assertIn('type="number" name="character_count"', new)
-        self.assertIn('placeholder="例如：世界里不能复活；主角必须是半精灵游侠；开局在雪国小镇……"', new)
+        self.assertIn("new.constraints.placeholder", new)
 
         self.assertIn('input class="input input--compact" type="number" inputmode="numeric" name="hp_delta" value="0" autocomplete="off"', character_panel)
         self.assertIn('input class="input input--compact" type="number" inputmode="numeric" name="gold_delta" value="0" autocomplete="off"', character_panel)
-        self.assertIn('input class="input" name="reason" autocomplete="off" placeholder="例如：剧情奖励 / 惩罚 / 测试分支"', character_panel)
+        self.assertIn('input class="input" name="reason" autocomplete="off" placeholder="{{ t(\'character.reason_placeholder\') }}"', character_panel)
         self.assertIn('textarea class="input textarea" name="conditions_text" autocomplete="off"', character_panel)
         self.assertIn('textarea class="input textarea" name="inventory_text" autocomplete="off"', character_panel)
         self.assertIn('textarea class="input textarea" name="notes_text" autocomplete="off"', character_panel)
@@ -1233,9 +1357,9 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn('id="blank-adventure-name" class="input" name="name" required autocomplete="off"', saves)
         self.assertIn('id="new-chapter-title" class="input" name="title" required autocomplete="off"', saves)
-        self.assertIn('id="new-chapter-scene" class="input" name="current_scene" value="起始" autocomplete="off"', saves)
-        self.assertIn('name="snapshot_name" autocomplete="off" placeholder="例如：进入钟楼前"', saves)
-        self.assertIn('class="input input--compact" name="fork_title" autocomplete="off" placeholder="故事分支标题（可选）"', saves)
+        self.assertIn("saves.chapter.start_scene_placeholder", saves)
+        self.assertIn("saves.snapshot.name_placeholder", saves)
+        self.assertIn("saves.fork.title_placeholder", saves)
 
     def test_primary_entry_templates_keep_styles_in_css(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
@@ -1282,7 +1406,7 @@ class TestUITemplates(unittest.TestCase):
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
-        self.assertIn("条 DM 建议待确认。应用前可先查看预览；角色状态和剧情线不会自动改写。", game)
+        self.assertIn("game.review.body", game)
         self.assertIn("@media (max-width: 900px) {", css)
         self.assertIn("  .grid--game { grid-template-columns: 1fr; }", css)
         self.assertIn("  .page-game .app-main { display: block; height: auto; overflow: visible; }", css)
@@ -1296,14 +1420,27 @@ class TestUITemplates(unittest.TestCase):
     def test_character_panel_shows_summary_before_advanced_json(self) -> None:
         panel = Path("src/one_person_dnd/web/templates/partials/character_panel.html").read_text(encoding="utf-8")
 
-        self.assertIn("角色概览", panel)
+        self.assertIn("character.overview", panel)
         self.assertIn("character_summary", panel)
-        self.assertIn("变更预览", panel)
+        self.assertIn("character.change.preview", panel)
         self.assertIn("change-preview", panel)
         self.assertIn("preview.lines", panel)
-        self.assertIn("角色卡 JSON（高级）", panel)
+        self.assertIn("character.json_summary", panel)
         self.assertIn("<details", panel)
         self.assertNotIn('class="card"', panel)
+
+        english = _template_environment("en").get_template("partials/character_panel.html").render(
+            session_id=1,
+            character_sheet="{}",
+            quick_stats={"hp": None, "gold": None},
+            pending_changes=[],
+            pending_count=0,
+            notice_message="Player-authored notice",
+            character_summary=SimpleNamespace(has_content=False),
+        )
+        self.assertIn("Character Overview", english)
+        self.assertIn("Character Sheet JSON (Advanced)", english)
+        self.assertIn("Player-authored notice", english)
 
     def test_character_panel_surfaces_notice_before_controls(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
@@ -1329,22 +1466,29 @@ class TestUITemplates(unittest.TestCase):
     def test_character_panel_mutation_forms_announce_progress(self) -> None:
         panel = Path("src/one_person_dnd/web/templates/partials/character_panel.html").read_text(encoding="utf-8")
 
-        for indicator_id, text in (
-            ("quick-adjust-saving", "应用中…"),
-            ("quick-state-saving", "保存中…"),
-            ("character-saving", "保存中…"),
+        for indicator_id, key in (
+            ("quick-adjust-saving", "character.applying"),
+            ("quick-state-saving", "character.saving"),
+            ("character-saving", "character.saving"),
         ):
             self.assertIn(f'hx-indicator="#{indicator_id}"', panel)
+            translated = "{{ t('" + key + "') }}"
             self.assertIn(
-                f'id="{indicator_id}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{text}</span>',
+                f'id="{indicator_id}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{translated}</span>',
                 panel,
             )
 
         self.assertIn('id="character-save-result" role="status" aria-live="polite"', panel)
         self.assertIn('hx-indicator="#change-apply-saving-{{ c.id }}"', panel)
-        self.assertIn('id="change-apply-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">应用中…</span>', panel)
+        self.assertIn(
+            'id="change-apply-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{{ t(\'character.applying\') }}</span>',
+            panel,
+        )
         self.assertIn('hx-indicator="#change-reject-saving-{{ c.id }}"', panel)
-        self.assertIn('id="change-reject-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">拒绝中…</span>', panel)
+        self.assertIn(
+            'id="change-reject-saving-{{ c.id }}" class="htmx-indicator spinner form-status" role="status" aria-live="polite">{{ t(\'character.rejecting\') }}</span>',
+            panel,
+        )
 
     def test_character_panel_renders_abilities_conditions_and_notes_form(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
@@ -1398,7 +1542,7 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertNotIn('value="{{ profile.api_key', template)
         self.assertNotIn('value="{{ p.api_key', template)
-        self.assertIn('placeholder="留空则保持原密钥"', template)
+        self.assertIn("models.placeholder.api_key_keep", template)
         self.assertIn('type="password" name="api_key"', template)
 
     def test_models_test_action_shows_progress_indicator(self) -> None:
@@ -1408,7 +1552,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn('hx-target="#test-result-{{ profile.id }}"', template)
         self.assertIn('hx-indicator="#test-loading-{{ profile.id }}"', template)
         self.assertIn('id="test-loading-{{ profile.id }}"', template)
-        self.assertIn("测试中……", template)
+        self.assertIn("models.testing", template)
         self.assertIn('class="htmx-indicator spinner"', template)
 
     def test_dm_choices_are_clickable_actions(self) -> None:
@@ -1431,7 +1575,7 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("dataset.choiceText", app_js)
         self.assertIn("data-choice-feedback", app_js)
         self.assertIn("function showChoiceActionFeedback()", app_js)
-        self.assertIn("已填入行动，可直接发送", app_js)
+        self.assertIn('window.DndI18n.t("game.js.choice_filled")', app_js)
         self.assertIn("data-choice-feedback", game)
         self.assertIn('role="status"', game)
         self.assertIn(".action-composer__feedback", css)
@@ -1511,6 +1655,48 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn(".action-assessment", css)
         self.assertIn(".assessment-pill--warn", css)
 
+    def test_english_history_localizes_frozen_adjudication_intent(self) -> None:
+        template = _template_environment("en").get_template("partials/chat_turn.html")
+
+        html = template.render(
+            turn={
+                "turn_index": 0,
+                "player_text": "I sneak past the customs officer.",
+                "dm": {
+                    "narration": "You disappear into the lantern shadows.",
+                    "choices": [],
+                    "dm_notes": "",
+                    "memory_suggestions": "",
+                },
+                "dice_events": [],
+                "action_assessment": {
+                    "action_type": "exploration",
+                    "signals": ["ability_check_resolved"],
+                    "warnings": [],
+                    "adjudication": {
+                        "check": {
+                            "outcome": "success",
+                            "ability": "DEX",
+                            "skill": "Stealth",
+                            "dc": 15,
+                            "d20s": [16],
+                            "selected_d20": 16,
+                            "ability_modifier": 2,
+                            "proficiency_modifier": 2,
+                            "circumstance_modifier": 0,
+                            "total": 20,
+                            "roll_mode": "normal",
+                            "natural_face": None,
+                            "intent": "避免被发现",
+                        }
+                    },
+                },
+            }
+        )
+
+        self.assertIn("Intent: Avoid being detected", html)
+        self.assertNotIn("避免被发现", html)
+
     def test_turn_diagnostics_renders_dm_critic_warnings_outside_story(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
         register_jinja_globals(env)
@@ -1565,19 +1751,27 @@ class TestUITemplates(unittest.TestCase):
 
     def test_streaming_renderer_outputs_action_assessment(self) -> None:
         app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
-        labels_py = Path("src/one_person_dnd/web/labels.py").read_text(encoding="utf-8")
+        diagnostics_py = Path(
+            "src/one_person_dnd/web/localization/catalogs/diagnostics.py"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("action_assessment", app_js)
         self.assertIn("action-assessment", app_js)
-        self.assertIn("系统判定", app_js)
+        self.assertIn('window.DndI18n.t("game.turn.system_judgment")', app_js)
         self.assertIn("ACTION_TYPE_LABELS", app_js)
         self.assertIn("ACTION_SIGNAL_LABELS", app_js)
         self.assertIn("ACTION_WARNING_LABELS", app_js)
-        # Label text itself now lives in the single-source `web/labels.py`;
+        # Label text itself lives in the bilingual diagnostics catalog;
         # app.js reads it from the injected `#dnd-labels` JSON at runtime
         # instead of hardcoding a second copy.
-        self.assertIn("可能需要掷骰", labels_py)
-        self.assertIn("行动描述已包含结果", labels_py)
+        self.assertIn("可能需要掷骰", diagnostics_py)
+        self.assertIn("行动描述已包含结果", diagnostics_py)
+
+    def test_streaming_renderer_localizes_frozen_adjudication_intent(self) -> None:
+        app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
+
+        self.assertIn("ADJUDICATION_INTENT_LABELS", app_js)
+        self.assertIn("labelForCode(ADJUDICATION_INTENT_LABELS, check.intent)", app_js)
 
     def test_streaming_renderer_places_dice_events_with_player_action(self) -> None:
         app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
@@ -1605,7 +1799,7 @@ class TestUITemplates(unittest.TestCase):
         css = Path("src/one_person_dnd/web/static/style.css").read_text(encoding="utf-8")
 
         self.assertIn("streaming-wait", app_js)
-        self.assertIn("DM 正在思考下一幕", app_js)
+        self.assertIn('window.DndI18n.t("game.js.dm_thinking")', app_js)
         self.assertIn('asstContent.dataset.waiting = "1"', app_js)
         self.assertIn('asstContent.textContent = ""', app_js)
         self.assertIn('asstContent.classList.remove("streaming-wait", "spinner")', app_js)
@@ -1614,26 +1808,30 @@ class TestUITemplates(unittest.TestCase):
 
     def test_streaming_renderer_outputs_dm_critic_warnings(self) -> None:
         app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
-        labels_py = Path("src/one_person_dnd/web/labels.py").read_text(encoding="utf-8")
+        diagnostics_py = Path(
+            "src/one_person_dnd/web/localization/catalogs/diagnostics.py"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("critic_warnings", app_js)
         self.assertIn("dm-review", app_js)
-        self.assertIn("DM 审查", app_js)
+        self.assertIn('window.DndI18n.t("game.turn.dm_review")', app_js)
         self.assertIn("CRITIC_WARNING_LABELS", app_js)
-        # Single source: the label text lives in `web/labels.py`, not app.js.
-        self.assertIn("行动建议数量不适合继续游玩", labels_py)
+        # Single source: the label text lives in the catalog, not app.js.
+        self.assertIn("行动建议数量不适合继续游玩", diagnostics_py)
 
     def test_streaming_renderer_outputs_response_warnings(self) -> None:
         app_js = Path("src/one_person_dnd/web/static/js/app.js").read_text(encoding="utf-8")
-        labels_py = Path("src/one_person_dnd/web/labels.py").read_text(encoding="utf-8")
+        diagnostics_py = Path(
+            "src/one_person_dnd/web/localization/catalogs/diagnostics.py"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("response_warnings", app_js)
         self.assertIn("response-review", app_js)
-        self.assertIn("反应评估", app_js)
+        self.assertIn('window.DndI18n.t("game.turn.response_review")', app_js)
         self.assertIn("RESPONSE_WARNING_LABELS", app_js)
-        # Single source: the label text lives in `web/labels.py`, not app.js.
-        self.assertIn("行动建议重复", labels_py)
-        self.assertIn("行动建议过于笼统", labels_py)
+        # Single source: the label text lives in the catalog, not app.js.
+        self.assertIn("行动建议重复", diagnostics_py)
+        self.assertIn("行动建议过于笼统", diagnostics_py)
 
     def test_chat_turn_append_renders_recalled_context_preview(self) -> None:
         env = Environment(loader=FileSystemLoader("src/one_person_dnd/web/templates"), autoescape=True)
@@ -1690,11 +1888,8 @@ class TestUITemplates(unittest.TestCase):
     def test_game_recall_preview_empty_state_describes_all_context_sources(self) -> None:
         game = Path("src/one_person_dnd/web/templates/game.html").read_text(encoding="utf-8")
 
-        self.assertIn('<div class="muted recall-preview-title">本回合参考</div>', game)
-        self.assertIn(
-            "（发送一次行动后显示 DM 使用的角色、世界、剧情线、故事记忆、掷骰和行动判定）",
-            game,
-        )
+        self.assertIn("game.recall.title", game)
+        self.assertIn("game.recall.initial", game)
         self.assertNotIn("本回合召回设定", game)
         self.assertNotIn("发送一次行动后显示命中的 WorldBible 条目", game)
 
@@ -1703,8 +1898,8 @@ class TestUITemplates(unittest.TestCase):
 
         self.assertIn("recalled_context", app_js)
         self.assertIn("renderRecalledContext", app_js)
-        self.assertIn("本回合参考", app_js)
-        self.assertIn("已裁剪", app_js)
+        self.assertIn('window.DndI18n.t("game.recall.title")', app_js)
+        self.assertIn('window.DndI18n.t("game.recall.trimmed")', app_js)
         self.assertIn("recall-stack", app_js)
 
     def test_streaming_renderer_splits_real_sse_newlines(self) -> None:
@@ -1739,9 +1934,9 @@ class TestUITemplates(unittest.TestCase):
         self.assertIn("management-grid", saves)
         self.assertIn("management-section", saves)
         self.assertIn("snapshot-card", saves)
-        self.assertIn("快照与故事分支 ·", saves)
-        self.assertIn("本章共", saves)
-        self.assertIn("本章还没有快照", saves)
+        self.assertIn("saves.snapshots.summary", saves)
+        self.assertIn("saves.snapshot.recent_counts", saves)
+        self.assertIn("saves.snapshots.empty_title", saves)
         self.assertIn(".management-grid", css)
         self.assertIn(".snapshot-card", css)
 

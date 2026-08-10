@@ -1,27 +1,62 @@
-# one_person_dnd
+<h1 align="center">one_person_dnd</h1>
 
-[中文](README.md) | English
+<p align="center">
+  <a href="README.md">中文</a> · <strong>English</strong>
+</p>
 
-`one_person_dnd` is a local-first solo TRPG / DND web app. You describe what your character does in the browser, an LLM acts as the DM, and the app stores campaigns, sessions, world lore, character sheets, plot threads, summaries, and turn history in a local SQLite database.
+<p align="center"><strong>You don't need a full party to start a DND adventure.</strong></p>
 
-Use it as a personal text-adventure table, a testbed for LLM-driven narration, or a starting point for a local solo DND tool.
+<p align="center">
+  <a href="https://github.com/taogezhizun/one_person_dnd/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/taogezhizun/one_person_dnd/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="pyproject.toml"><img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12%2B-7aa2f7?logo=python&amp;logoColor=white&amp;labelColor=111820"></a>
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-c07643?labelColor=111820"></a>
+  <a href="#local-data-and-configuration"><img alt="Local-first data" src="https://img.shields.io/badge/Data-local--first-8fd6b4?labelColor=111820"></a>
+</p>
 
-## What You Can Do
+<p align="center">
+  <img src="docs/assets/github/game-hero.en.jpg" width="1200" alt="one_person_dnd English game screen with a resolved stealth check, DM narration, action choices, and the character panel">
+</p>
 
-- Create multiple campaigns and sessions with snapshots, restore points, and forks.
-- Use DeepSeek or any OpenAI-compatible model as the DM.
-- Generate starter world lore and a character sheet from the new-adventure wizard.
-- Play from `/game`: read the story, enter actions, click suggested actions, and roll dice quickly.
-- Resolve meaningful exploration/social ability checks before narration, using character abilities, skill proficiency, DC, and advantage/disadvantage.
-- Maintain world lore, plot threads, character status, inventory, HP, gold, and notes.
-- Review DM-suggested character or plot-thread changes before they are applied.
-- Inspect the context used for each turn, including character state, world facts, plot threads, story memory, dice, and action assessment.
+<p align="center">
+  Bring your character, say what you want to do, and let the adventure begin. AI runs the game; your character and saves stay local.
+</p>
+
+<p align="center">
+  The interface supports Chinese and English from the top navigation. Switching languages leaves saved characters and story text unchanged.
+</p>
+
+<p align="center">
+  <a href="#quick-start">90-second setup</a> · <a href="#why-play">Why play</a> · <a href="#from-setup-to-your-first-turn">Turn flow</a>
+</p>
+
+## Why Play
+
+- **You own the save**: adventure data stays in the project-local SQLite database, with multiple saves, snapshots, restores, and forks.
+- **Adjudication precedes narration**: the system freezes abilities, skills, DC, dice, and outcomes before the DM narrates; the same technical retry never rerolls. Attacks, saving throws, and full combat are explicitly marked unsupported.
+- **The DM proposes; you decide**: character-sheet and plot-thread changes enter a review queue and alter authoritative state only after the player applies them.
+
+## From Setup to Your First Turn
+
+You only need the first two steps once; every action then follows the same traceable flow.
+
+```mermaid
+flowchart LR
+    A["1. Configure a model"] --> B["2. Create an adventure"]
+    B --> C["3. Describe an action"]
+    C --> D["4. Freeze the check"]
+    D --> E["5. DM narrates"]
+    E --> F["6. Save locally"]
+```
 
 ## Quick Start
 
 Requirement: Python 3.12.
 
 ```bash
+git clone https://github.com/taogezhizun/one_person_dnd.git
+cd one_person_dnd
+python3.12 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .
@@ -55,6 +90,8 @@ python -m one_person_dnd --host 0.0.0.0 --allow-non-loopback --no-browser
 Non-loopback mode exposes local saves and model-configuration pages to the network. The built-in same-origin write protection is not authentication; use this mode only on a trusted network or behind separate access control.
 
 ## First Playthrough
+
+Choose `English` or `中文` in the top navigation. The preference is stored in a local cookie.
 
 1. Open `/models` and configure a model.
    - The fastest path is the DeepSeek quick-start panel: enter an API key and save.
@@ -97,7 +134,7 @@ Runtime data stays inside the project folder so it is easy to back up:
 - `.one_person_dnd/one_person_dnd.sqlite3`: local SQLite database, ignored by Git.
 - `api_config.example.ini`: tracked example configuration.
 
-Model profiles saved from `/models` take priority over the legacy `api_config.ini [llm]` section. If the database has no profiles yet, the app imports an existing `[llm]` config as `默认配置`.
+Model profiles saved from `/models` take priority over the legacy `api_config.ini [llm]` section. If the database has no profiles yet, the app imports an existing `[llm]` config as the default profile.
 
 ## Backup
 
