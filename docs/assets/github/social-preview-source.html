@@ -60,6 +60,9 @@
     .check-top { font-size: 13px; letter-spacing: 1.8px; text-transform: uppercase; color: #8fd6b4; margin-bottom: 7px; }
     .check-main { font-size: 21px; font-weight: 700; }
     .check-main b { color: #8fd6b4; }
+    .check-main--en { display: none; }
+    html[data-locale="en"] .check-main--zh { display: none; }
+    html[data-locale="en"] .check-main--en { display: block; }
     .shot { position: absolute; left: 635px; top: 110px; width: 720px; height: 520px; border: 1px solid rgba(228, 211, 176, .24); border-radius: 18px; overflow: hidden; box-shadow: 0 34px 90px rgba(0, 0, 0, .62); transform: rotate(1.4deg); background: #111820; }
     .shot img { width: 100%; height: 100%; object-fit: cover; object-position: 48% 50%; filter: saturate(.94) contrast(1.04); }
     .shot__image--en { display: none; }
@@ -97,7 +100,8 @@
     </section>
     <section class="check">
       <div class="check-top">Frozen before narration</div>
-      <div class="check-main">DEX / Stealth · d20 14 + 5 = 19 · DC 15 · <b>SUCCESS</b></div>
+      <div class="check-main check-main--zh">DEX / Stealth · d20 14 + 5 = 19 · DC 15 · <b>SUCCESS</b></div>
+      <div class="check-main check-main--en">DEX / Stealth · d20 16 + 4 = 20 · DC 15 · <b>SUCCESS</b></div>
     </section>
     <div class="shot">
       <img class="shot__image--zh" alt="" src="game-hero.jpg">

@@ -185,3 +185,7 @@ More documentation:
 - [docs/PRODUCT_DESIGN.md](docs/PRODUCT_DESIGN.md): product position, experience principles, visual direction, and the three bounded optimization rounds.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): modules, routes, data model, turn flow, prompt, and memory design.
 - [docs/RUNBOOK.md](docs/RUNBOOK.md): local running, configuration, backup, troubleshooting, and release checks.
+
+## License and Attributions
+
+The original project code is available under the [MIT License](LICENSE). The required SRD 5.2.1 attribution statement and upstream license texts for bundled browser libraries are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -79,6 +79,7 @@ python -m unittest discover -s tests -p "test*.py"
 - `/threads` 页面仍是手动维护入口；DM 建议的 `THREAD_UPDATES` 只能通过玩家确认后的 pending request 应用。
 - `.one_person_dnd/` 是用户本地存档，调试时可以复制备份，但不要随手删除或纳入提交。
 - `api_config.ini` 可能含 API key。日志、测试输出、文档示例都不要泄露真实密钥。
+- 更新 `src/one_person_dnd/web/static/vendor/` 中的内置前端库时，必须同步 `THIRD_PARTY_NOTICES.md` 和 `LICENSES/` 中对应版本的上游许可证；SRD 5.2.1 的指定归属声明保持原文，不要改写。
 - README 面向玩家/开发者入口，`AGENTS.md` 面向 Agent 维护规则，`docs/` 面向结构和运维细节；不要把同一段长说明复制到多处。
 
 ## 验证标准

@@ -185,3 +185,7 @@ tests/                     # unittest 测试
 - [docs/PRODUCT_DESIGN.md](docs/PRODUCT_DESIGN.md)：产品定位、体验原则、视觉方向和本轮三次有界优化。
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：模块、路由、数据模型、回合流程和 prompt/memory 机制。
 - [docs/RUNBOOK.md](docs/RUNBOOK.md)：本地运行、配置、备份、排障和发布前检查。
+
+## 许可证与归属
+
+项目自身代码使用 [MIT License](LICENSE)。SRD 5.2.1 的必要归属声明和仓库内置前端库的许可证原文见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
